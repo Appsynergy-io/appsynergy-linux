@@ -111,10 +111,12 @@ CONFIG_X86_INTEL_PSTATE=y
 # CONFIG_X86_MCE_AMD is not set
 # CONFIG_AMD_MEM_ENCRYPT is not set
 
-# GPU: i915 as module (UHD 770). For built-in KMS / no-NVIDIA boot, use igpu.fragment.
+# GPU: NVIDIA card dead/removed 2026-07-19. Intel UHD 770 (Alder Lake-S, i915) is now
+# the only GPU. i915 BUILT-IN (=y) so KMS + fbcon + login come up with zero initramfs
+# dependency — the boot-to-login path must never rely on a module being pulled in.
 CONFIG_DRM=y
 CONFIG_DRM_FBDEV_EMULATION=y
-CONFIG_DRM_I915=m
+CONFIG_DRM_I915=y
 # CONFIG_DRM_XE is not set
 # CONFIG_DRM_AMDGPU is not set
 # CONFIG_DRM_RADEON is not set

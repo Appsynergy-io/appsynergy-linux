@@ -10,7 +10,8 @@ Optimized kernel design for **i9-12900K + ASUS Z690 + RTX 4090** on CachyOS, aim
 | [docs/BIOS-CHECKLIST.md](docs/BIOS-CHECKLIST.md) | BIOS settings + PCIe deep dive |
 | **[docs/VERIFICATION.md](docs/VERIFICATION.md)** | Baseline benches, strip candidates |
 | [docs/OPTIMIZED-KERNEL.md](docs/OPTIMIZED-KERNEL.md) | Custom kernel plan |
-| [configs/rustopt.fragment](configs/rustopt.fragment) | Kconfig fragment |
+| [configs/rustopt.fragment](configs/rustopt.fragment) | Kconfig fragment (`i915=m`) |
+| [configs/igpu.fragment](configs/igpu.fragment) | iGPU-only variant (`i915=y`, post-NVIDIA) |
 
 ## Baseline (recorded 2026-07-12)
 

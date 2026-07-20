@@ -51,3 +51,7 @@ System.map
 /tmp/
 *.perf.data*
 perf.data*
+
+# Local package/build logs (not source of truth)
+*.log
+igpu-build.log
