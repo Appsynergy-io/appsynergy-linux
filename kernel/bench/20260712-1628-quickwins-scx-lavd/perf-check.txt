@@ -1,0 +1,26 @@
+# started on Sun Jul 12 16:29:29 2026
+
+
+ Performance counter stats for 'cargo check -j24':
+
+          38362.71 msec task-clock:u                                                          
+       30699397203      cpu_atom/cycles/u                                                       (68.22%)
+       92177224663      cpu_core/cycles/u                                                       (89.77%)
+       31313605364      cpu_atom/instructions/u                                                 (68.22%)
+      104363347494      cpu_core/instructions/u                                                 (89.77%)
+        5642040270      cpu_atom/branches/u                                                     (68.22%)
+       18455449257      cpu_core/branches/u                                                     (89.77%)
+         233288234      cpu_atom/branch-misses/u                                                (68.22%)
+         566203463      cpu_core/branch-misses/u                                                (89.77%)
+         698786974      cpu_atom/cache-references/u                                             (68.22%)
+        1554024248      cpu_core/cache-references/u                                             (89.77%)
+         228385748      cpu_atom/cache-misses/u                                                 (68.22%)
+         551022065      cpu_core/cache-misses/u                                                 (89.77%)
+           2405003      page-faults:u                                                         
+
+      10.880316519 seconds time elapsed
+
+      27.477051000 seconds user
+      11.105119000 seconds sys
+
+

@@ -1,0 +1,53 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# Host-local / secrets
+*.local.md
+CLAUDE.local.md
+CODE.local.md
+secrets.env
+.env
+.env.*
+
+# Vendor BIOS blobs (re-download from ASUS; keep meta + bios-api.json)
+firmware/**/*.CAP
+firmware/**/*.cap
+firmware/**/*.ZIP
+firmware/**/*.zip
+firmware/**/*.EXE
+firmware/**/*.exe
+firmware/**/*.ROM
+firmware/**/*.rom
+
+# Kernel / package build artifacts (if produced in-tree later)
+*.o
+*.ko
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+vmlinux
+vmlinuz*
+System.map
+*.pkg.tar*
+*.pkg.tar.zst
+*.afdo
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+
+# Perf / temporary bench scratch (keep committed run dirs under bench/)
+/tmp/
+*.perf.data*
+perf.data*

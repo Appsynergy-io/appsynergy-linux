@@ -1,0 +1,58 @@
+===== release @ 2026-07-12T16:28:07-03:00 =====
+     Removed 3702 files, 983.9MiB total
+wall_sec=81.35 user_sec=173.23 sys_sec=11.87 maxrss_kb=1608180
+# started on Sun Jul 12 16:28:07 2026
+
+
+ Performance counter stats for 'cargo build --release -j24':
+
+         186412.76 msec task-clock:u                                                          
+      302069571661      cpu_atom/cycles/u                                                       (37.72%)
+      688477778641      cpu_core/cycles/u                                                       (88.62%)
+      319314727283      cpu_atom/instructions/u                                                 (37.72%)
+      851346514185      cpu_core/instructions/u                                                 (88.62%)
+       61554189747      cpu_atom/branches/u                                                     (37.72%)
+      166646633562      cpu_core/branches/u                                                     (88.62%)
+        3645379580      cpu_atom/branch-misses/u                                                (37.72%)
+        7466544452      cpu_core/branch-misses/u                                                (88.62%)
+        6423453181      cpu_atom/cache-references/u                                             (37.72%)
+       12287026172      cpu_core/cache-references/u                                             (88.62%)
+        1574696515      cpu_atom/cache-misses/u                                                 (37.72%)
+        2994039407      cpu_core/cache-misses/u                                                 (88.62%)
+           3655579      page-faults:u                                                         
+
+      81.340798089 seconds time elapsed
+
+     173.225941000 seconds user
+      11.865647000 seconds sys
+
+
+===== check @ 2026-07-12T16:29:29-03:00 =====
+     Removed 4058 files, 942.0MiB total
+wall_sec=10.88 user_sec=27.47 sys_sec=11.11 maxrss_kb=821396
+# started on Sun Jul 12 16:29:29 2026
+
+
+ Performance counter stats for 'cargo check -j24':
+
+          38362.71 msec task-clock:u                                                          
+       30699397203      cpu_atom/cycles/u                                                       (68.22%)
+       92177224663      cpu_core/cycles/u                                                       (89.77%)
+       31313605364      cpu_atom/instructions/u                                                 (68.22%)
+      104363347494      cpu_core/instructions/u                                                 (89.77%)
+        5642040270      cpu_atom/branches/u                                                     (68.22%)
+       18455449257      cpu_core/branches/u                                                     (89.77%)
+         233288234      cpu_atom/branch-misses/u                                                (68.22%)
+         566203463      cpu_core/branch-misses/u                                                (89.77%)
+         698786974      cpu_atom/cache-references/u                                             (68.22%)
+        1554024248      cpu_core/cache-references/u                                             (89.77%)
+         228385748      cpu_atom/cache-misses/u                                                 (68.22%)
+         551022065      cpu_core/cache-misses/u                                                 (89.77%)
+           2405003      page-faults:u                                                         
+
+      10.880316519 seconds time elapsed
+
+      27.477051000 seconds user
+      11.105119000 seconds sys
+
+

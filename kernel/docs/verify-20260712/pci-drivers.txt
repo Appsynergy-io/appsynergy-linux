@@ -1,0 +1,14 @@
+      8 	Kernel driver in use: pcieport
+      3 	Kernel driver in use: intel-lpss
+      2 	Kernel driver in use: snd_hda_intel
+      2 	Kernel driver in use: ahci
+      1 	Kernel driver in use: xhci_hcd
+      1 	Kernel driver in use: vmd
+      1 	Kernel driver in use: nvme
+      1 	Kernel driver in use: nvidia
+      1 	Kernel driver in use: mei_me
+      1 	Kernel driver in use: iwlwifi
+      1 	Kernel driver in use: intel_vsec
+      1 	Kernel driver in use: intel-spi
+      1 	Kernel driver in use: igc
+      1 	Kernel driver in use: i801_smbus

@@ -1,0 +1,4 @@
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+enp6s0           UP             50:eb:f6:21:82:45 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+wlan0            DOWN           3a:e7:31:dd:1f:b9 <BROADCAST,MULTICAST> 
+docker0          DOWN           5a:4d:41:78:60:0c <NO-CARRIER,BROADCAST,MULTICAST,UP> 

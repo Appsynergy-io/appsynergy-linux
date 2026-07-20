@@ -1,0 +1,25 @@
+SUMMARY stock-prereboot-beetv 7.1.2-3-cachyos
+### time-check.txt
+wall_sec=7.00 user_sec=22.31 sys_sec=11.03 maxrss_kb=475028
+### time-release.txt
+wall_sec=56.54 user_sec=168.05 sys_sec=12.83 maxrss_kb=1490140
+### sched
+# Running 'sched/messaging' benchmark:
+# 20 sender and receiver processes per group
+# 20 groups == 800 processes run
+
+     Total time: 2.608 [sec]
+### memcpy
+# Running 'mem/memcpy' benchmark:
+# function 'default' (Default memcpy() provided by glibc)
+# Copying 512MB bytes ...
+
+      23.807285 GB/sec
+# function 'x86-64-unrolled' (unrolled memcpy() in arch/x86/lib/memcpy_64.S)
+# Copying 512MB bytes ...
+
+      12.940151 GB/sec
+# function 'x86-64-movsq' (movsq-based memcpy() in arch/x86/lib/memcpy_64.S)
+# Copying 512MB bytes ...
+
+      13.806710 GB/sec

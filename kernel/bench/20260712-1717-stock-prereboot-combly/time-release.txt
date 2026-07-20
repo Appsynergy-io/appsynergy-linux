@@ -1,0 +1,1 @@
+wall_sec=79.98 user_sec=162.48 sys_sec=12.53 maxrss_kb=1584372

@@ -1,0 +1,6 @@
+=== VERIFY SNAPSHOT ===
+Linux linux 7.1.2-3-cachyos #1 SMP PREEMPT_DYNAMIC Mon, 29 Jun 2026 14:34:33 +0000 x86_64 GNU/Linux
+--- critical boot path ---
+--- PCI drivers in use ---
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p1 1020M  929M   92M  92% /boot
