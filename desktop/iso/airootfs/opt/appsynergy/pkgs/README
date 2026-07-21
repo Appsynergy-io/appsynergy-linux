@@ -1,8 +1,14 @@
-Drop local packages here before build-iso.sh (gitignored binaries):
-  linux-cachyos-igpu-*.pkg.tar.zst
-  linux-cachyos-igpu-headers-*.pkg.tar.zst
-  brave-bin-*.pkg.tar.zst
-  thorium-browser-bin-*.pkg.tar.zst (optional)
+Drop local packages here before build-iso.sh (gitignored binaries).
+build-iso.sh stages these automatically when present:
 
-Kernel/headers also published on:
+  linux-appsynergy-*.pkg.tar.zst          (preferred kernel)
+  linux-appsynergy-headers-*.pkg.tar.zst
+  appsynergy-branding-*.pkg.tar.zst       (required offline after pacstrap)
+  appsynergy-mirrorlist-*.pkg.tar.zst
+  brave-bin-*.pkg.tar.zst
+  thorium-browser-bin-*.pkg.tar.zst       (optional)
+
+Legacy fallback: linux-cachyos-igpu{,-headers}-*.pkg.tar.zst
+
+Published also at:
   https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64

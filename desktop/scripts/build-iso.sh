@@ -10,24 +10,40 @@ WORK="$ROOT/work"
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root: sudo $0"; exit 1; }
 command -v mkarchiso >/dev/null || { echo "install archiso"; exit 1; }
 
-# Refresh local kernel packages into profile if present on build host
+# Refresh local packages into profile (kernel, branding, browsers)
 SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
+PKG_REPO=/home/imma/projects/appsynergy-packages/repo/x86_64
 DST_PKG="$PROFILE/airootfs/opt/appsynergy/pkgs"
 mkdir -p "$DST_PKG"
 # Prefer linux-appsynergy; keep legacy igpu name as fallback
 if compgen -G "$SRC_PKG/linux-appsynergy-[0-9]*.pkg.tar.zst" > /dev/null; then
   cp -a "$SRC_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
   cp -a "$SRC_PKG"/linux-appsynergy-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  rm -f "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
+elif compgen -G "$PKG_REPO/linux-appsynergy-[0-9]*.pkg.tar.zst" > /dev/null; then
+  cp -a "$PKG_REPO"/linux-appsynergy-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  cp -a "$PKG_REPO"/linux-appsynergy-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  rm -f "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
 elif compgen -G "$SRC_PKG/linux-cachyos-igpu-[0-9]*.pkg.tar.zst" > /dev/null; then
   cp -a "$SRC_PKG"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
   cp -a "$SRC_PKG"/linux-cachyos-igpu-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
 else
   echo "WARN: no local kernel packages (linux-appsynergy or linux-cachyos-igpu); use --kernel repo"
 fi
+# Branding + mirrorlist (required offline after pacstrap)
+for src in "$PKG_REPO" /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-branding \
+           /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-mirrorlist; do
+  if compgen -G "$src/appsynergy-branding-"*.pkg.tar.zst > /dev/null; then
+    cp -a "$src"/appsynergy-branding-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  fi
+  if compgen -G "$src/appsynergy-mirrorlist-"*.pkg.tar.zst > /dev/null; then
+    cp -a "$src"/appsynergy-mirrorlist-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  fi
+done
 # do not ship dbg into ISO
 rm -f "$DST_PKG"/*-dbg-*.pkg.tar.zst
-echo "Local kernel pkgs:"
-ls -lh "$DST_PKG"/linux-*.pkg.tar.zst 2>/dev/null || true
+echo "Local kernel/branding pkgs:"
+ls -lh "$DST_PKG"/linux-*.pkg.tar.zst "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
 
 # Browsers (no Firefox): pull brave from pacman cache if present
 if compgen -G /var/cache/pacman/pkg/brave-bin-*.pkg.tar.zst > /dev/null; then
@@ -40,6 +56,16 @@ if compgen -G /var/cache/pacman/pkg/thorium-browser-bin-*.pkg.tar.zst > /dev/nul
 fi
 echo "Local browser pkgs in image:"
 ls -lh "$DST_PKG"/brave-bin-* "$DST_PKG"/thorium-browser-bin-* 2>/dev/null || echo "  (brave/thorium none yet)"
+# Fail if kernel or branding missing when local kernel is expected
+if ! compgen -G "$DST_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst > /dev/null \
+   && ! compgen -G "$DST_PKG"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst > /dev/null; then
+  echo "ERROR: no kernel .pkg.tar.zst in $DST_PKG — aborting"
+  exit 1
+fi
+if ! compgen -G "$DST_PKG"/appsynergy-branding-*.pkg.tar.zst > /dev/null; then
+  echo "ERROR: appsynergy-branding missing from $DST_PKG — aborting"
+  exit 1
+fi
 
 echo "==> Stage rescue CLIs (grok + claude) into live image"
 # Preserve real user home under sudo

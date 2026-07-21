@@ -22,8 +22,12 @@ mkinitcpio
 # --- network / security ---
 networkmanager
 iwd
+wireless-regdb
+wireguard-tools
 bluez
 bluez-utils
+bluez-obex
+bluez-hid2hci
 openssh
 ufw
 nftables
@@ -41,8 +45,11 @@ unzip
 zip
 wget
 curl
+jq
 bash-completion
 fish
+bind
+fwupd
 
 # --- GPU / media (Intel only) ---
 intel-media-driver
@@ -50,9 +57,11 @@ mesa
 vulkan-icd-loader
 vulkan-intel
 pipewire
+pipewire-audio
 pipewire-alsa
 pipewire-pulse
 wireplumber
+ffmpeg
 
 # --- desktop (Plasma Breeze) ---
 sddm
@@ -61,6 +70,7 @@ plasma-workspace
 plasma-nm
 plasma-pa
 plasma-systemmonitor
+plasma-browser-integration
 kscreen
 kwin
 breeze
@@ -70,9 +80,16 @@ kde-gtk-config
 dolphin
 konsole
 spectacle
+kate
+ark
 kscreenlocker
+# KWallet unlock at SDDM + manager UI + signon backend for KDE accounts
 kwallet-pam
 kwalletmanager
+signon-kwallet-extension
+kaccounts-integration
+# FIDO2 / security keys + hybrid passkeys (Brave/Chromium + bluez Experimental)
+libfido2
 xdg-desktop-portal
 xdg-desktop-portal-kde
 xdg-user-dirs
@@ -166,6 +183,9 @@ fuse-overlayfs
 # - archlinux.gay (mirror hostname — stripped by appsynergy-sanitize-mirrors)
 # - age-verification apps / browser experiment stubs
 
-# --- AppSynergy repo packages (public) ---
-appsynergy-mirrorlist
-appsynergy-branding
+# --- AppSynergy identity (NOT pacstrap'd) ---
+# Live /etc/pacman.conf is stock Arch (no [appsynergy], conf.d unused).
+# appsynergy-install installs these after pacstrap via:
+#   1) public repo once [appsynergy]+XferCommand is registered, else
+#   2) local /opt/appsynergy/pkgs/appsynergy-{branding,mirrorlist}-*.pkg.tar.zst
+# Do not list them here — pacstrap would fail looking in core/extra only.

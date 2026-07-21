@@ -8,7 +8,7 @@ Defaults (this workstation):
   Locale:   en_US.UTF-8
   Timezone: America/Sao_Paulo
   Keymap:   us
-  Desktop:  Plasma (Breeze) + Firefox + btrfs-assistant
+  Desktop:  Plasma (Breeze) + Brave + btrfs-assistant
   Dev:      docker, rustup, go, node, clang, code, …
 
 Before install:

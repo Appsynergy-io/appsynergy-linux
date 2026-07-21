@@ -62,6 +62,14 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 NVIDIA stack, extra kernels, Cachy themes, CUDA, mingw, Firefox, Plymouth, yay/octopi.
 Browsers: Brave (+ Thorium when packaged); custom browser later.
 
+## Target extras (packages-target)
+
+Networking: `wireguard-tools`, `iwd` + NM `wifi.backend=iwd`, `wireless-regdb`, `jq`, `bind`, `fwupd`.
+BT / passkeys / wallet: `bluez` + `bluez-utils` + `bluez-obex` + `bluedevil`, `libfido2`,
+`kwallet-pam` + `kwalletmanager` + `signon-kwallet-extension`, `plasma-browser-integration`,
+`pipewire-audio` (BT codecs). Installer sets bluez `Experimental=true` + `AutoEnable=true`
+for Chromium/Brave hybrid passkeys; user groups include `lp`/`rfkill`/`audio`/`input`.
+
 ## After first boot
 
 - Restore backups (`~/.ssh`, `~/projects`, `~/bin/bazel` farm wrapper, …)

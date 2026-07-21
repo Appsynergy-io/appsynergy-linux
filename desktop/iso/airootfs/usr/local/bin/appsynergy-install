@@ -134,7 +134,21 @@ mount "$EFI_PART" "$MNT/boot"
 mapfile -t PKG_LIST < <(grep -vE '^\s*(#|$)' "$PKGS")
 [[ ${#PKG_LIST[@]} -gt 0 ]] || die "empty package list"
 
-# Kernel packages from repo when not using local igpu
+# Never pacstrap AppSynergy-only packages (live pacman has no [appsynergy] repo).
+# Branding/mirrorlist go on after pacstrap via repo or /opt/appsynergy/pkgs.
+FILTERED=()
+for p in "${PKG_LIST[@]}"; do
+  case "$p" in
+    appsynergy-branding|appsynergy-mirrorlist|linux-appsynergy|linux-appsynergy-headers|linux-cachyos-igpu|linux-cachyos-igpu-headers)
+      echo "    skip pacstrap (post-install path): $p"
+      ;;
+    *) FILTERED+=("$p") ;;
+  esac
+done
+PKG_LIST=("${FILTERED[@]}")
+[[ ${#PKG_LIST[@]} -gt 0 ]] || die "empty package list after filter"
+
+# Kernel packages from repo when not using local packages
 if [[ "$KERNEL_MODE" == "repo" ]]; then
   PKG_LIST+=(linux linux-headers)
 elif [[ "$KERNEL_MODE" == "local" ]]; then
@@ -204,11 +218,7 @@ if ((${#BRAND_LOCAL[@]})); then
     if ((${#pkgs[@]})); then pacman -U --noconfirm "${pkgs[@]}"; fi
   ' && echo "    branding/mirrorlist installed (local or upgraded)"
 fi
-# Apply distro identity + skel bashrc on the installed system
-if [[ -f "$MNT/etc/appsynergy/os-release" ]]; then
-  cp -a "$MNT/etc/appsynergy/os-release" "$MNT/usr/lib/os-release"
-  echo "    applied /usr/lib/os-release"
-fi
+# Skel bashrc from branding package (os-release applied later after branding)
 if [[ -f "$MNT/usr/share/appsynergy/skel/bashrc" ]]; then
   cp -a "$MNT/usr/share/appsynergy/skel/bashrc" "$MNT/etc/skel/.bashrc"
   echo "    applied /etc/skel/.bashrc (wordmark greeting)"
@@ -265,7 +275,15 @@ HOSTS
 "
 
 echo "==> Branding os-release"
-cat > "$MNT/etc/os-release" <<EOF
+# Prefer package-provided identity (VARIANT, brand color); thin fallback if missing
+if [[ -f "$MNT/etc/appsynergy/os-release" ]]; then
+  cp -a "$MNT/etc/appsynergy/os-release" "$MNT/etc/os-release"
+  cp -a "$MNT/etc/appsynergy/os-release" "$MNT/usr/lib/os-release"
+elif [[ -f "$MNT/usr/share/appsynergy/os-release" ]]; then
+  cp -a "$MNT/usr/share/appsynergy/os-release" "$MNT/etc/os-release"
+  cp -a "$MNT/usr/share/appsynergy/os-release" "$MNT/usr/lib/os-release"
+else
+  cat > "$MNT/etc/os-release" <<EOF
 NAME="AppSynergy Linux"
 PRETTY_NAME="AppSynergy Linux"
 ID=appsynergy-linux
@@ -277,6 +295,39 @@ DOCUMENTATION_URL="https://git.appsynergy.io/imabee"
 SUPPORT_URL="https://git.appsynergy.io/imabee"
 LOGO=appsynergy-linux
 EOF
+  cp -a "$MNT/etc/os-release" "$MNT/usr/lib/os-release"
+fi
+
+echo "==> NetworkManager: iwd backend (match live USB)"
+mkdir -p "$MNT/etc/NetworkManager/conf.d"
+if [[ -f /etc/NetworkManager/conf.d/wifi_backend.conf ]]; then
+  cp -a /etc/NetworkManager/conf.d/wifi_backend.conf "$MNT/etc/NetworkManager/conf.d/"
+else
+  cat > "$MNT/etc/NetworkManager/conf.d/wifi_backend.conf" <<'EOF'
+[device]
+wifi.backend=iwd
+EOF
+fi
+
+echo "==> Bluetooth: AutoEnable + Experimental (hybrid passkeys / caBLE)"
+# Chromium/Brave hybrid passkeys need a working adapter + Experimental features.
+mkdir -p "$MNT/etc/bluetooth"
+if [[ -f "$MNT/etc/bluetooth/main.conf" ]]; then
+  sed -i -E 's/^#?AutoEnable = .*/AutoEnable = true/' "$MNT/etc/bluetooth/main.conf"
+  sed -i -E 's/^#?Experimental = .*/Experimental = true/' "$MNT/etc/bluetooth/main.conf"
+  grep -qE '^AutoEnable = true' "$MNT/etc/bluetooth/main.conf" || \
+    sed -i '/^\[Policy\]/a AutoEnable = true' "$MNT/etc/bluetooth/main.conf" 2>/dev/null || \
+    printf '\n[Policy]\nAutoEnable = true\n' >> "$MNT/etc/bluetooth/main.conf"
+  grep -qE '^Experimental = true' "$MNT/etc/bluetooth/main.conf" || \
+    sed -i '/^\[General\]/a Experimental = true' "$MNT/etc/bluetooth/main.conf"
+else
+  cat > "$MNT/etc/bluetooth/main.conf" <<'EOF'
+[General]
+Experimental = true
+[Policy]
+AutoEnable = true
+EOF
+fi
 
 echo "==> mkinitcpio sd-encrypt hooks (passphrase + future TPM)"
 # systemd-based initramfs so systemd-cryptenroll TPM tokens work at boot
@@ -297,17 +348,28 @@ if ! grep -qE '^MODULES=.*hid_apple' "$MNT/etc/mkinitcpio.conf"; then
 fi
 
 echo "==> Users (set passwords interactively)"
+# Groups: seat/device access for BT audio/passkeys, docker, TPM (tss), rfkill for radio
 arch-chroot "$MNT" bash -c "
 set -euo pipefail
 echo 'Root password:'
 passwd
-useradd -m -G wheel,docker -s /bin/bash '${USER_NAME}' || true
+useradd -m -G wheel,docker,audio,input,video,lp,rfkill,storage,network,tss,uucp -s /bin/bash '${USER_NAME}' || \
+  usermod -aG wheel,docker,audio,input,video,lp,rfkill,storage,network,tss,uucp '${USER_NAME}' || true
 echo 'Password for ${USER_NAME}:'
 passwd '${USER_NAME}'
 # wheel sudo
 mkdir -p /etc/sudoers.d
 echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
 chmod 440 /etc/sudoers.d/wheel
+# KWallet unlock at SDDM login (kwallet-pam); ensure PAM lines if package did not wire them
+for pamf in /etc/pam.d/sddm /etc/pam.d/sddm-autologin; do
+  [[ -f \$pamf ]] || continue
+  if ! grep -q pam_kwallet5.so \$pamf; then
+    # auth before system-login include is ideal; append optional if missing
+    echo '-auth       optional    pam_kwallet5.so' >> \$pamf
+    echo '-session    optional    pam_kwallet5.so auto_start' >> \$pamf
+  fi
+done
 "
 
 echo "==> systemd-boot"
@@ -337,7 +399,15 @@ echo "==> rebuild initramfs"
 arch-chroot "$MNT" mkinitcpio -P
 
 echo "==> enable services"
-arch-chroot "$MNT" systemctl enable NetworkManager sddm sshd docker fstrim.timer bluetooth || true
+# bluetooth: adapter + obex (file transfer); NetworkManager uses iwd for wifi
+arch-chroot "$MNT" systemctl enable \
+  NetworkManager sddm sshd docker fstrim.timer \
+  bluetooth \
+  || true
+# bluez-obex unit name varies; ignore if absent
+arch-chroot "$MNT" systemctl enable obex 2>/dev/null || true
+# Ensure kwallet-pam user unit is available for Plasma sessions
+arch-chroot "$MNT" systemctl --global enable plasma-kwallet-pam.service 2>/dev/null || true
 
 # Agent-friendly shell note + ship appsynergy docs onto target
 mkdir -p "$MNT/etc/appsynergy"

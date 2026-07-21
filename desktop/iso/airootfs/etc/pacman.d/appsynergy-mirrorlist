@@ -1,3 +1,0 @@
-# AppSynergy package server (Gitea generic packages)
-# Used by /etc/pacman.conf.d/appsynergy.conf — do not add random third-party hosts here.
-Server = https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64

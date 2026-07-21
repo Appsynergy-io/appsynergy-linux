@@ -1,4 +1,0 @@
-AppSynergy Linux: system and agent automation use bash.
-fish may be installed for interactive use only.
-Login shell default: /bin/bash
-No political themes or activist packages on the base system.
