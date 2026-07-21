@@ -1,0 +1,12 @@
+Rescue CLIs on this live USB
+============================
+
+  grok     — Grok Build CLI (also linked as `agent`)
+  claude   — Claude Code CLI
+
+Both need network + your own API auth. This image does NOT ship API keys.
+
+Grok:   run `grok` then complete login / set auth as usual for your install
+Claude: run `claude` and authenticate when prompted
+
+Use for fixing a broken install (chroot, edit configs, diagnose LUKS) — not as a daily driver.

@@ -55,6 +55,7 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 | `iso/airootfs/etc/appsynergy/machine.env` | disk/hostname/user defaults |
 | `iso/airootfs/usr/local/bin/appsynergy-install` | installer |
 | `iso/airootfs/opt/appsynergy/pkgs/` | local igpu kernel `.pkg.tar.zst` |
+| `scripts/stage-rescue-clis.sh` | Copies `grok` + `claude` into live `/usr/local/bin` at build time |
 
 ## Not included (on purpose)
 

@@ -30,6 +30,8 @@ After reboot:
 Branding: os-release + ASCII banner + stock Breeze Dark only.
 Never: Firefox, Cachy theme packs, pride/hyfetch, flashy SDDM, archlinux.gay mirrors.
 Browsers: Brave (local pkg on USB) + Thorium (local pkg if present, else paru after boot).
+Rescue CLIs (live USB only): grok, claude — need network + your auth (no keys on media).
+  See /etc/appsynergy/RESCUE-CLI.txt
 
 Bazel host packages are in packages-target.txt (bazelisk, jdk17, gcc, pnpm, musl, …).
 See /etc/appsynergy/BAZEL-HOST.txt on the live USB and installed system.

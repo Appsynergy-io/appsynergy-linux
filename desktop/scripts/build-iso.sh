@@ -37,6 +37,21 @@ fi
 echo "Local browser pkgs in image:"
 ls -lh "$DST_PKG"/brave-bin-* "$DST_PKG"/thorium-browser-bin-* 2>/dev/null || echo "  (brave/thorium none yet)"
 
+echo "==> Stage rescue CLIs (grok + claude) into live image"
+# Preserve real user home under sudo
+if [[ -n "${SUDO_USER:-}" ]]; then
+  sudo -u "$SUDO_USER" bash "$ROOT/scripts/stage-rescue-clis.sh" \
+    || bash "$ROOT/scripts/stage-rescue-clis.sh"
+else
+  bash "$ROOT/scripts/stage-rescue-clis.sh"
+fi
+# Fail build if rescue tools missing (USB is for recovery)
+if [[ ! -x "$PROFILE/airootfs/usr/local/bin/grok" || ! -x "$PROFILE/airootfs/usr/local/bin/claude" ]]; then
+  echo "ERROR: grok and/or claude not staged into airootfs — aborting ISO build"
+  ls -la "$PROFILE/airootfs/usr/local/bin/" || true
+  exit 1
+fi
+
 mkdir -p "$OUT"
 # clean work for repeatable builds (slow but safe)
 if [[ "${CLEAN:-1}" == "1" ]]; then

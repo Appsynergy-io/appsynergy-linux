@@ -27,4 +27,7 @@ file_permissions=(
   ["/usr/local/bin/appsynergy-tpm-enroll"]="0:0:755"
   ["/usr/local/bin/appsynergy-banner"]="0:0:755"
   ["/usr/local/bin/appsynergy-sanitize-mirrors"]="0:0:755"
+  ["/usr/local/bin/grok"]="0:0:755"
+  ["/usr/local/bin/claude"]="0:0:755"
+  ["/usr/local/bin/agent"]="0:0:755"
 )

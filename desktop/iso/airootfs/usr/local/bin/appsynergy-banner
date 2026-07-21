@@ -1,20 +1,29 @@
 #!/usr/bin/bash
-cat <<'EOF'
+# Wordmark only: [appsynergy] — teal brackets, light name. No hub-spoke.
 
-     _                     ____
-    / \   _ __  _ __  ___ / ___| _   _ _ __   ___ _ __ __ _ _   _
-   / _ \ | '_ \| '_ \/ __|\___ \| | | | '_ \ / _ \ '__/ _` | | | |
-  / ___ \| |_) | |_) \__ \ ___) | |_| | | | |  __/ | | (_| | |_| |
- /_/   \_\ .__/| .__/|___/|____/ \__, |_| |_|\___|_|  \__, |\__, |
-         |_|   |_|               |___/                |___/ |___/
-
-  AppSynergy Linux installer USB
-  Locale: en_US.UTF-8  |  TZ: America/Sao_Paulo  |  Keymap: us
-
-  Network:   NetworkManager (nmtui / nmcli)
-  Install:   sudo appsynergy-install
-             (WIPEs /dev/nvme0n1 by default — read prompts)
-
-  Docs:      cat /etc/appsynergy/README-INSTALL.txt
-
+print_plain() {
+  cat /usr/share/appsynergy/ascii/logo.txt 2>/dev/null || cat <<'EOF'
+  ██╗   __ _ _ __  _ __  ___ _   _ _ __   ___ _ __ __ _ _   _  ██╗
+  ██║  / _` | '_ \| '_ \/ __| | | | '_ \ / _ \ '__/ _` | | | | ██║
+  ██║ | (_| | |_) | |_) \__ \ |_| | | | |  __/ | | (_| | |_| | ██║
+  ██║  \__,_| .__/| .__/|___/\__, |_| |_|\___|_|  \__, |\__, | ██║
+  ╚═╝       |_|   |_|        |___/                |___/ |___/  ╚═╝
 EOF
+}
+
+if [[ ! -t 1 ]]; then
+  print_plain
+  exit 0
+fi
+
+T=$'\e[1;38;2;74;155;184m'
+N=$'\e[1;38;2;236;240;244m'
+R=$'\e[0m'
+
+printf '%s\n' \
+  "${T}  ██╗ ${N}  __ _ _ __  _ __  ___ _   _ _ __   ___ _ __ __ _ _   _ ${T} ██╗${R}" \
+  "${T}  ██║ ${N} / _\` | '_ \\| '_ \\/ __| | | | '_ \\ / _ \\ '__/ _\` | | | |${T} ██║${R}" \
+  "${T}  ██║ ${N}| (_| | |_) | |_) \\__ \\ |_| | | | |  __/ | | (_| | |_| |${T} ██║${R}" \
+  "${T}  ██║ ${N} \\__,_| .__/| .__/|___/\\__, |_| |_|\\___|_|  \\__, |\\__, |${T} ██║${R}" \
+  "${T}  ╚═╝ ${N}      |_|   |_|        |___/                |___/ |___/ ${T} ╚═╝${R}"
+printf '\n'

@@ -5,3 +5,8 @@
 iso/airootfs/opt/appsynergy/pkgs/*.pkg.tar.zst
 iso/airootfs/opt/appsynergy/pkgs/*.pkg.tar.zst.sig
 iso/airootfs/opt/appsynergy/pkgs/*.sig
+# staged rescue CLIs (copied at ISO build from ~/.grok and ~/.bun)
+iso/airootfs/usr/local/bin/grok
+iso/airootfs/usr/local/bin/agent
+iso/airootfs/usr/local/bin/claude
+brand-review/candidates-all/
