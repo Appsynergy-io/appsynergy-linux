@@ -1,0 +1,18 @@
+# Maintainer: AppSynergy
+pkgname=appsynergy-branding
+pkgver=1
+pkgrel=1
+pkgdesc='AppSynergy Linux identity (os-release, motd, shell policy)'
+arch=('any')
+url='https://git.appsynergy.io/imabee/appsynergy-packages'
+license=('MIT')
+source=('os-release' 'motd' 'SHELL-POLICY.txt')
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm644 "$srcdir/os-release" "$pkgdir/usr/lib/os-release"
+  # /etc/os-release often symlink; also place etc for clarity
+  install -Dm644 "$srcdir/os-release" "$pkgdir/etc/appsynergy/os-release"
+  install -Dm644 "$srcdir/motd" "$pkgdir/etc/motd"
+  install -Dm644 "$srcdir/SHELL-POLICY.txt" "$pkgdir/etc/appsynergy/SHELL-POLICY.txt"
+}

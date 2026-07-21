@@ -1,0 +1,5 @@
+
+  AppSynergy Linux
+  Updates: sudo pacman -Syu
+  Packages: [appsynergy] — see /etc/pacman.conf.d/appsynergy.conf
+
