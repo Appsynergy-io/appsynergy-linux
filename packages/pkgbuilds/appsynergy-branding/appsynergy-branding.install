@@ -1,13 +1,6 @@
 post_install() {
   gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
-  # On AppSynergy systems, apply distro os-release (ID=appsynergy-linux)
-  if [[ -f /etc/appsynergy/os-release ]]; then
-    if grep -q 'ID=appsynergy-linux' /etc/appsynergy/os-release 2>/dev/null; then
-      if [[ -f /etc/appsynergy/machine.env ]] || grep -q 'appsynergy' /etc/hostname 2>/dev/null; then
-        cp -a /etc/appsynergy/os-release /usr/lib/os-release 2>/dev/null || true
-      fi
-    fi
-  fi
+  _appsynergy_apply_os_release
 }
 
 post_upgrade() {
@@ -16,4 +9,20 @@ post_upgrade() {
 
 post_remove() {
   gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+}
+
+_appsynergy_apply_os_release() {
+  # Apply distro identity. Keep a one-time backup of the previous file.
+  local src=/etc/appsynergy/os-release
+  [[ -f $src ]] || return 0
+  if [[ -f /usr/lib/os-release ]] && ! grep -q 'ID=appsynergy-linux' /usr/lib/os-release 2>/dev/null; then
+    if [[ ! -f /etc/appsynergy/os-release.pre-appsynergy ]]; then
+      cp -a /usr/lib/os-release /etc/appsynergy/os-release.pre-appsynergy 2>/dev/null || true
+    fi
+  fi
+  cp -a "$src" /usr/lib/os-release
+  # /etc/os-release is often a symlink to /usr/lib/os-release on Arch
+  if [[ -e /etc/os-release && ! -L /etc/os-release ]]; then
+    cp -a "$src" /etc/os-release
+  fi
 }

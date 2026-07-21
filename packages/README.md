@@ -27,7 +27,7 @@ Packages are **unsigned** until `appsynergy-keyring` ships; use `SigLevel = Opti
 
 | Package | Role |
 |---------|------|
-| `linux-cachyos-igpu` / headers | Custom iGPU kernel for this PC (will rename to `linux-appsynergy` later) |
+| `linux-appsynergy` / headers | AppSynergy workstation kernel (iGPU-tuned; formerly `linux-cachyos-igpu`) |
 | `appsynergy-mirrorlist` | Registers the `[appsynergy]` repo |
 | `appsynergy-branding` | os-release + motd + shell policy |
 

@@ -21,8 +21,10 @@ build_pkg "$ROOT/pkgbuilds/appsynergy-branding"
 
 # Stage custom kernel if present on this machine
 for f in \
-  /home/imma/src/linux-cachyos/linux-cachyos/linux-cachyos-igpu-7*.pkg.tar.zst \
-  /home/imma/src/linux-cachyos/linux-cachyos/linux-cachyos-igpu-headers-7*.pkg.tar.zst
+  /home/imma/src/linux-cachyos/linux-cachyos/linux-appsynergy-[0-9]*.pkg.tar.zst \
+  /home/imma/src/linux-cachyos/linux-cachyos/linux-appsynergy-headers-*.pkg.tar.zst \
+  /home/imma/src/linux-cachyos/linux-cachyos/linux-cachyos-igpu-[0-9]*.pkg.tar.zst \
+  /home/imma/src/linux-cachyos/linux-cachyos/linux-cachyos-igpu-headers-*.pkg.tar.zst
  do
   [[ -f "$f" ]] || continue
   [[ "$f" == *dbg* ]] && continue
