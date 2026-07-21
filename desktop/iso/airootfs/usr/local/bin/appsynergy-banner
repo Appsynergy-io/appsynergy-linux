@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# Open-corner [appsynergy] ASCII — tight proportions, brand teal.
+# Corporate open-corner [appsynergy] — brand teal #4a9bb8 + light name.
 
 if [[ ! -t 1 ]]; then
   cat /usr/share/appsynergy/ascii/logo.txt 2>/dev/null || cat <<'EOF'
@@ -10,10 +10,15 @@ EOF
   exit 0
 fi
 
-cat <<'EOF'
-
+printf '\n'
+if [[ -f /usr/share/appsynergy/ascii/logo-color.txt ]]; then
+  cat /usr/share/appsynergy/ascii/logo-color.txt
+else
+  # embedded truecolor fallback
+  cat <<'EOF'
     [1;38;2;74;155;184m▛▀[0m              [1;38;2;74;155;184m▀▜[0m
     [1;38;2;74;155;184m▌ [1;38;2;242;244;246m  appsynergy  [1;38;2;74;155;184m ▐[0m
     [1;38;2;74;155;184m▙▄[0m              [1;38;2;74;155;184m▄▟[0m
-
 EOF
+fi
+printf '\n'
