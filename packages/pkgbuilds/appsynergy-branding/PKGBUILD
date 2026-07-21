@@ -1,7 +1,7 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-branding
 pkgver=2
-pkgrel=7
+pkgrel=8
 pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, fastfetch'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-packages'
@@ -24,6 +24,7 @@ package() {
   # Wordmark ASCII (plain + used by fastfetch/neofetch)
   install -Dm644 "$src/ascii/logo.txt" "$pkgdir/usr/share/appsynergy/ascii/logo.txt"
   install -Dm644 "$src/ascii/logo-wide.txt" "$pkgdir/usr/share/appsynergy/ascii/logo-wide.txt"
+  install -Dm644 "$src/ascii/logo-color.txt" "$pkgdir/usr/share/appsynergy/ascii/logo-color.txt"
 
   # Banner CLI
   install -Dm755 "$src/bin/appsynergy-banner" "$pkgdir/usr/bin/appsynergy-banner"
