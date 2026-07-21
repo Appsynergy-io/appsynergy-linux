@@ -193,7 +193,10 @@ CONFIG_EFIVAR_FS=y
 
 CONFIG_USB_XHCI_HCD=y
 CONFIG_USB_XHCI_PCI=y
-CONFIG_HID_APPLE=m
+# Keychron K4 (Mac mode) = 05ac:024f needs hid_apple (generic blocked by
+# HID_QUIRK_HAVE_SPECIAL_DRIVER). Keep =y so LUKS prompt never depends on
+# initramfs packing this module.
+CONFIG_HID_APPLE=y
 CONFIG_HID_GENERIC=y
 CONFIG_USB_HID=y
 CONFIG_SND=y

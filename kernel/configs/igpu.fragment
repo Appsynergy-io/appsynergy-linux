@@ -195,7 +195,11 @@ CONFIG_EFIVAR_FS=y
 
 CONFIG_USB_XHCI_HCD=y
 CONFIG_USB_XHCI_PCI=y
-CONFIG_HID_APPLE=m
+# Keychron K4 (Mac mode) presents as 05ac:024f → ONLY hid_apple binds.
+# HID_QUIRK_HAVE_SPECIAL_DRIVER blocks hid-generic; if this is =m and the
+# module is missing from initramfs, LUKS password prompt gets no keystrokes.
+# Built-in so the default boot path never depends on mkinitcpio autodetect.
+CONFIG_HID_APPLE=y
 CONFIG_HID_GENERIC=y
 CONFIG_USB_HID=y
 CONFIG_SND=y
