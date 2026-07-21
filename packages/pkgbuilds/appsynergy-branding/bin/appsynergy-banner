@@ -1,19 +1,19 @@
 #!/usr/bin/bash
-# Corporate wordmark — geometric [ appsynergy ], brand teal.
+# Open-corner [appsynergy] ASCII — tight proportions, brand teal.
 
 if [[ ! -t 1 ]]; then
   cat /usr/share/appsynergy/ascii/logo.txt 2>/dev/null || cat <<'EOF'
-    ▛▀                  ▀▜
-    ▌     appsynergy     ▐
-    ▙▄                  ▄▟
+    ▛▀              ▀▜
+    ▌   appsynergy   ▐
+    ▙▄              ▄▟
 EOF
   exit 0
 fi
 
 cat <<'EOF'
 
-    [1;38;2;74;155;184m▛▀[0m                  [1;38;2;74;155;184m▀▜[0m
-    [1;38;2;74;155;184m▌ [1;38;2;242;244;246m    appsynergy    [1;38;2;74;155;184m ▐[0m
-    [1;38;2;74;155;184m▙▄[0m                  [1;38;2;74;155;184m▄▟[0m
+    [1;38;2;74;155;184m▛▀[0m              [1;38;2;74;155;184m▀▜[0m
+    [1;38;2;74;155;184m▌ [1;38;2;242;244;246m  appsynergy  [1;38;2;74;155;184m ▐[0m
+    [1;38;2;74;155;184m▙▄[0m              [1;38;2;74;155;184m▄▟[0m
 
 EOF
