@@ -183,9 +183,32 @@ fi
 mkdir -p "$MNT/etc/pacman.conf.d" "$MNT/etc/pacman.d"
 [[ -f /etc/pacman.conf.d/appsynergy.conf ]] && cp -a /etc/pacman.conf.d/appsynergy.conf "$MNT/etc/pacman.conf.d/"
 [[ -f /etc/pacman.d/appsynergy-mirrorlist ]] && cp -a /etc/pacman.d/appsynergy-mirrorlist "$MNT/etc/pacman.d/"
-# Prefer packages from public repo when reachable
+# Branding + mirrorlist: public repo, then offline payload under /opt/appsynergy/pkgs
+echo "==> AppSynergy branding"
 arch-chroot "$MNT" pacman -Sy --noconfirm appsynergy-mirrorlist appsynergy-branding 2>/dev/null \
-  || echo "WARN: could not pull appsynergy-mirrorlist/branding yet (network/repo)"
+  || echo "WARN: repo pull of branding failed — trying local pkgs"
+shopt -s nullglob
+BRAND_LOCAL=("$LOCAL_PKGDIR"/appsynergy-branding-*.pkg.tar.zst "$LOCAL_PKGDIR"/appsynergy-mirrorlist-*.pkg.tar.zst)
+shopt -u nullglob
+if ((${#BRAND_LOCAL[@]})); then
+  mkdir -p "$MNT/root/pkgs"
+  cp -a "${BRAND_LOCAL[@]}" "$MNT/root/pkgs/"
+  arch-chroot "$MNT" bash -c '
+    shopt -s nullglob
+    pkgs=(/root/pkgs/appsynergy-branding-*.pkg.tar.zst /root/pkgs/appsynergy-mirrorlist-*.pkg.tar.zst)
+    if ((${#pkgs[@]})); then pacman -U --noconfirm "${pkgs[@]}"; fi
+  ' && echo "    branding/mirrorlist installed (local or upgraded)"
+fi
+# Apply distro identity + skel bashrc on the installed system
+if [[ -f "$MNT/etc/appsynergy/os-release" ]]; then
+  cp -a "$MNT/etc/appsynergy/os-release" "$MNT/usr/lib/os-release"
+  echo "    applied /usr/lib/os-release"
+fi
+if [[ -f "$MNT/usr/share/appsynergy/skel/bashrc" ]]; then
+  cp -a "$MNT/usr/share/appsynergy/skel/bashrc" "$MNT/etc/skel/.bashrc"
+  echo "    applied /etc/skel/.bashrc (wordmark greeting)"
+fi
+[[ -f "$MNT/etc/motd" ]] || echo "WARN: /etc/motd missing after branding install"
 
 # Local browser packages (Brave required; Thorium if present in payload)
 echo "==> Local browser packages (no Firefox)"

@@ -57,6 +57,9 @@ tmux
 btop
 ripgrep
 fastfetch
+# AppSynergy identity (wordmark motd/banner, icons, greeting) — from [appsynergy] repo
+appsynergy-branding
+appsynergy-mirrorlist
 terminus-font
 
 # hardware probes
