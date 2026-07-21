@@ -1,5 +1,13 @@
 post_install() {
   gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+  # On AppSynergy systems, apply distro os-release (ID=appsynergy-linux)
+  if [[ -f /etc/appsynergy/os-release ]]; then
+    if grep -q 'ID=appsynergy-linux' /etc/appsynergy/os-release 2>/dev/null; then
+      if [[ -f /etc/appsynergy/machine.env ]] || grep -q 'appsynergy' /etc/hostname 2>/dev/null; then
+        cp -a /etc/appsynergy/os-release /usr/lib/os-release 2>/dev/null || true
+      fi
+    fi
+  fi
 }
 
 post_upgrade() {

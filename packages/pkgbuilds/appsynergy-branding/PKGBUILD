@@ -1,7 +1,7 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-branding
 pkgver=2
-pkgrel=5
+pkgrel=6
 pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, fastfetch'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-packages'
@@ -14,9 +14,10 @@ sha256sums=()
 package() {
   local src="${startdir}"
 
-  # Identity
-  install -Dm644 "$src/os-release" "$pkgdir/usr/lib/os-release"
+  # Identity — do not own /usr/lib/os-release (filesystem package on Arch hosts).
+  # Full AppSynergy install copies this into place via appsynergy-install.
   install -Dm644 "$src/os-release" "$pkgdir/etc/appsynergy/os-release"
+  install -Dm644 "$src/os-release" "$pkgdir/usr/share/appsynergy/os-release"
   install -Dm644 "$src/motd" "$pkgdir/etc/motd"
   install -Dm644 "$src/SHELL-POLICY.txt" "$pkgdir/etc/appsynergy/SHELL-POLICY.txt"
 
@@ -27,13 +28,17 @@ package() {
   # Banner CLI
   install -Dm755 "$src/bin/appsynergy-banner" "$pkgdir/usr/bin/appsynergy-banner"
 
-  # Interactive greeting
+  # Interactive greeting (login shells)
   install -Dm644 "$src/profile.d/appsynergy-greeting.sh" \
     "$pkgdir/etc/profile.d/appsynergy-greeting.sh"
 
-  # skel: new users get bashrc + fetch configs + fish greeting
+  # Bashrc snippet (sourced from skel / user; not overwriting bash-owned skel)
+  if [[ -f "$src/skel/.bashrc" ]]; then
+    install -Dm644 "$src/skel/.bashrc" "$pkgdir/usr/share/appsynergy/skel/bashrc"
+    install -Dm644 "$src/skel/.bashrc" "$pkgdir/etc/skel/.bashrc.appsynergy"
+  fi
+
   if [[ -d "$src/skel" ]]; then
-    install -Dm644 "$src/skel/.bashrc" "$pkgdir/etc/skel/.bashrc"
     if [[ -f "$src/skel/.config/fastfetch/config.jsonc" ]]; then
       install -Dm644 "$src/skel/.config/fastfetch/config.jsonc" \
         "$pkgdir/etc/skel/.config/fastfetch/config.jsonc"
