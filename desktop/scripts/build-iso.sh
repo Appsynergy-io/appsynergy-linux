@@ -14,16 +14,20 @@ command -v mkarchiso >/dev/null || { echo "install archiso"; exit 1; }
 SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
 DST_PKG="$PROFILE/airootfs/opt/appsynergy/pkgs"
 mkdir -p "$DST_PKG"
-if compgen -G "$SRC_PKG/linux-cachyos-igpu-7*.pkg.tar.zst" > /dev/null; then
-  cp -a "$SRC_PKG"/linux-cachyos-igpu-7*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  cp -a "$SRC_PKG"/linux-cachyos-igpu-headers-7*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  # do not ship dbg into ISO
-  rm -f "$DST_PKG"/*-dbg-*.pkg.tar.zst
-  echo "Local kernel pkgs:"
-  ls -lh "$DST_PKG"
+# Prefer linux-appsynergy; keep legacy igpu name as fallback
+if compgen -G "$SRC_PKG/linux-appsynergy-[0-9]*.pkg.tar.zst" > /dev/null; then
+  cp -a "$SRC_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  cp -a "$SRC_PKG"/linux-appsynergy-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+elif compgen -G "$SRC_PKG/linux-cachyos-igpu-[0-9]*.pkg.tar.zst" > /dev/null; then
+  cp -a "$SRC_PKG"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  cp -a "$SRC_PKG"/linux-cachyos-igpu-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
 else
-  echo "WARN: no local igpu packages found; installer --kernel local will fail (use --kernel repo)"
+  echo "WARN: no local kernel packages (linux-appsynergy or linux-cachyos-igpu); use --kernel repo"
 fi
+# do not ship dbg into ISO
+rm -f "$DST_PKG"/*-dbg-*.pkg.tar.zst
+echo "Local kernel pkgs:"
+ls -lh "$DST_PKG"/linux-*.pkg.tar.zst 2>/dev/null || true
 
 # Browsers (no Firefox): pull brave from pacman cache if present
 if compgen -G /var/cache/pacman/pkg/brave-bin-*.pkg.tar.zst > /dev/null; then

@@ -139,11 +139,16 @@ if [[ "$KERNEL_MODE" == "repo" ]]; then
   PKG_LIST+=(linux linux-headers)
 elif [[ "$KERNEL_MODE" == "local" ]]; then
   shopt -s nullglob
-  LOCAL_PKGS=("$LOCAL_PKGDIR"/linux-cachyos-igpu-7*.pkg.tar.zst)
-  LOCAL_HDR=("$LOCAL_PKGDIR"/linux-cachyos-igpu-headers-7*.pkg.tar.zst)
+  # Prefer linux-appsynergy; fall back to legacy linux-cachyos-igpu
+  LOCAL_PKGS=("$LOCAL_PKGDIR"/linux-appsynergy-[0-9]*.pkg.tar.zst)
+  LOCAL_HDR=("$LOCAL_PKGDIR"/linux-appsynergy-headers-*.pkg.tar.zst)
+  if [[ ${#LOCAL_PKGS[@]} -lt 1 || ${#LOCAL_HDR[@]} -lt 1 ]]; then
+    LOCAL_PKGS=("$LOCAL_PKGDIR"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst)
+    LOCAL_HDR=("$LOCAL_PKGDIR"/linux-cachyos-igpu-headers-*.pkg.tar.zst)
+  fi
   shopt -u nullglob
   [[ ${#LOCAL_PKGS[@]} -ge 1 && ${#LOCAL_HDR[@]} -ge 1 ]] || \
-    die "kernel mode local but missing pkgs in $LOCAL_PKGDIR (copy igpu + headers .pkg.tar.zst there before build)"
+    die "kernel mode local but missing pkgs in $LOCAL_PKGDIR (need linux-appsynergy or linux-cachyos-igpu + headers)"
 else
   die "kernel mode must be repo or local (got: $KERNEL_MODE)"
 fi
