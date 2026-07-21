@@ -1,8 +1,9 @@
-# AppSynergy wordmark — once, brand colors via logo-color + fastfetch config.
+# AppSynergy wordmark — once; brand teal; vertically padded via fastfetch config.
 status is-interactive; or return
 set -q APPSYNERGY_GREETING_DONE; and return
 set -gx APPSYNERGY_GREETING_DONE 1
 
+# Kill vendor fish_greeting (CachyOS etc.) so only our fetch runs.
 function fish_greeting
 end
 
@@ -11,9 +12,8 @@ if not isatty stdout
 end
 
 if type -q fastfetch; and test -f /usr/share/appsynergy/fastfetch/config.jsonc
-    fastfetch --config /usr/share/appsynergy/fastfetch/config.jsonc
+    # Explicit pad in case an older user config overrides the system file
+    fastfetch --config /usr/share/appsynergy/fastfetch/config.jsonc --logo-padding-top 8
 else if type -q appsynergy-banner
     appsynergy-banner
-else if type -q neofetch
-    neofetch --ascii /usr/share/appsynergy/ascii/logo.txt --ascii_colors 6 7
 end

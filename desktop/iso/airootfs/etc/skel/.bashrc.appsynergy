@@ -10,7 +10,7 @@ PS1='\[\e[1;38;2;74;155;184m\]\u@\h\[\e[0m\]:\w\$ '
 if [[ $- == *i* && -z ${APPSYNERGY_GREETING_DONE:-} && -t 1 ]]; then
   export APPSYNERGY_GREETING_DONE=1
   if command -v fastfetch >/dev/null 2>&1 && [[ -f /usr/share/appsynergy/fastfetch/config.jsonc ]]; then
-    fastfetch --config /usr/share/appsynergy/fastfetch/config.jsonc
+    fastfetch --config /usr/share/appsynergy/fastfetch/config.jsonc --logo-padding-top 8
   elif command -v appsynergy-banner >/dev/null 2>&1; then
     appsynergy-banner
   fi

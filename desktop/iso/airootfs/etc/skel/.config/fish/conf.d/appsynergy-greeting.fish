@@ -1,1 +1,1 @@
-# No-op: greeting is only /etc/fish/conf.d/appsynergy-greeting.fish
+# No-op: greeting only in /etc/fish/conf.d
