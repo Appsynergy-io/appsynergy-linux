@@ -1,18 +1,62 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-branding
-pkgver=1
+pkgver=2
 pkgrel=1
-pkgdesc='AppSynergy Linux identity (os-release, motd, shell policy)'
+pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, fastfetch'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-packages'
 license=('MIT')
-source=('os-release' 'motd' 'SHELL-POLICY.txt')
-sha256sums=('SKIP' 'SKIP' 'SKIP')
+install=appsynergy-branding.install
+# Local sources only (no remote download)
+source=()
+sha256sums=()
 
 package() {
-  install -Dm644 "$srcdir/os-release" "$pkgdir/usr/lib/os-release"
-  # /etc/os-release often symlink; also place etc for clarity
-  install -Dm644 "$srcdir/os-release" "$pkgdir/etc/appsynergy/os-release"
-  install -Dm644 "$srcdir/motd" "$pkgdir/etc/motd"
-  install -Dm644 "$srcdir/SHELL-POLICY.txt" "$pkgdir/etc/appsynergy/SHELL-POLICY.txt"
+  local src="${startdir}"
+
+  # Identity
+  install -Dm644 "$src/os-release" "$pkgdir/usr/lib/os-release"
+  install -Dm644 "$src/os-release" "$pkgdir/etc/appsynergy/os-release"
+  install -Dm644 "$src/motd" "$pkgdir/etc/motd"
+  install -Dm644 "$src/SHELL-POLICY.txt" "$pkgdir/etc/appsynergy/SHELL-POLICY.txt"
+
+  # Wordmark ASCII (plain + used by fastfetch/neofetch)
+  install -Dm644 "$src/ascii/logo.txt" "$pkgdir/usr/share/appsynergy/ascii/logo.txt"
+  install -Dm644 "$src/ascii/logo-wide.txt" "$pkgdir/usr/share/appsynergy/ascii/logo-wide.txt"
+
+  # Banner CLI
+  install -Dm755 "$src/bin/appsynergy-banner" "$pkgdir/usr/bin/appsynergy-banner"
+
+  # Interactive greeting
+  install -Dm644 "$src/profile.d/appsynergy-greeting.sh" \
+    "$pkgdir/etc/profile.d/appsynergy-greeting.sh"
+
+  # skel: new users get bashrc + fetch configs + fish greeting
+  if [[ -d "$src/skel" ]]; then
+    install -Dm644 "$src/skel/.bashrc" "$pkgdir/etc/skel/.bashrc"
+    if [[ -f "$src/skel/.config/fastfetch/config.jsonc" ]]; then
+      install -Dm644 "$src/skel/.config/fastfetch/config.jsonc" \
+        "$pkgdir/etc/skel/.config/fastfetch/config.jsonc"
+      install -Dm644 "$src/skel/.config/fastfetch/config.jsonc" \
+        "$pkgdir/usr/share/appsynergy/fastfetch/config.jsonc"
+    fi
+    if [[ -f "$src/skel/.config/neofetch/config.conf" ]]; then
+      install -Dm644 "$src/skel/.config/neofetch/config.conf" \
+        "$pkgdir/etc/skel/.config/neofetch/config.conf"
+    fi
+    if [[ -f "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" ]]; then
+      install -Dm644 "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" \
+        "$pkgdir/etc/skel/.config/fish/conf.d/appsynergy-greeting.fish"
+      install -Dm644 "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" \
+        "$pkgdir/etc/fish/conf.d/appsynergy-greeting.fish"
+    fi
+  fi
+
+  # hicolor icons — LOGO=appsynergy-linux
+  if [[ -d "$src/icons/hicolor" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/icons/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/icons/$rel"
+    done < <(find "$src/icons/hicolor" -type f -print0)
+  fi
 }
