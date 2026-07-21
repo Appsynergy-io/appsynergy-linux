@@ -4,7 +4,7 @@
     "type": "file-raw",
     "source": "/usr/share/appsynergy/ascii/logo-color.txt",
     "padding": {
-      "top": 6,
+      "top": 8,
       "left": 2,
       "right": 3
     }
