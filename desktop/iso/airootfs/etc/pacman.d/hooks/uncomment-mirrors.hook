@@ -1,0 +1,14 @@
+# remove from airootfs!
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = pacman-mirrorlist
+
+[Action]
+Description = Enable HTTPS mirrors; strip non-neutral / joke mirror hosts...
+When = PostTransaction
+Depends = pacman-mirrorlist
+Depends = sed
+# Uncomment HTTPS servers, then drop archlinux.gay and similar joke hosts
+Exec = /usr/bin/bash -c 'sed -E -i "s/#(Server = https:)/\\1/g" /etc/pacman.d/mirrorlist; sed -E -i "/archlinux\\.gay/d; /pride/Id; /hyfetch/Id" /etc/pacman.d/mirrorlist'

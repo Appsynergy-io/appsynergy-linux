@@ -1,0 +1,20 @@
+#!/usr/bin/bash
+cat <<'EOF'
+
+     _                     ____
+    / \   _ __  _ __  ___ / ___| _   _ _ __   ___ _ __ __ _ _   _
+   / _ \ | '_ \| '_ \/ __|\___ \| | | | '_ \ / _ \ '__/ _` | | | |
+  / ___ \| |_) | |_) \__ \ ___) | |_| | | | |  __/ | | (_| | |_| |
+ /_/   \_\ .__/| .__/|___/|____/ \__, |_| |_|\___|_|  \__, |\__, |
+         |_|   |_|               |___/                |___/ |___/
+
+  AppSynergy Linux installer USB
+  Locale: en_US.UTF-8  |  TZ: America/Sao_Paulo  |  Keymap: us
+
+  Network:   NetworkManager (nmtui / nmcli)
+  Install:   sudo appsynergy-install
+             (WIPEs /dev/nvme0n1 by default — read prompts)
+
+  Docs:      cat /etc/appsynergy/README-INSTALL.txt
+
+EOF

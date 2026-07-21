@@ -1,0 +1,389 @@
+#!/usr/bin/bash
+# AppSynergy Linux — destructive full-disk installer for the Z690 workstation.
+# Live USB only. Requires network for pacstrap (unless using a full offline cache).
+set -euo pipefail
+
+CONF=/etc/appsynergy/machine.env
+PKGS=/etc/appsynergy/packages-target.txt
+LOCAL_PKGDIR=/opt/appsynergy/pkgs
+MNT=/mnt/appsynergy
+
+# shellcheck source=/dev/null
+source "$CONF"
+
+DISK="${APPSYNERGY_DISK}"
+HOSTNAME="${APPSYNERGY_HOSTNAME}"
+USER_NAME="${APPSYNERGY_USER}"
+TIMEZONE="${APPSYNERGY_TIMEZONE}"
+LOCALE="${APPSYNERGY_LOCALE}"
+KEYMAP="${APPSYNERGY_KEYMAP}"
+EFI_SIZE="${APPSYNERGY_EFI_SIZE}"
+CRYPTNAME="${APPSYNERGY_CRYPTNAME}"
+KERNEL_MODE="${APPSYNERGY_KERNEL}"
+
+usage() {
+  cat <<EOF
+Usage: appsynergy-install [--disk PATH] [--kernel repo|local] [--yes]
+
+  DESTROYS ALL DATA on the target disk.
+  Default disk: ${APPSYNERGY_DISK}
+  Default kernel: ${APPSYNERGY_KERNEL}
+    repo  = pacstrap linux + linux-headers
+    local = pacman -U igpu packages from ${LOCAL_PKGDIR}
+
+  Environment overrides: see ${CONF}
+EOF
+}
+
+YES=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --disk) DISK="$2"; shift 2 ;;
+    --kernel) KERNEL_MODE="$2"; shift 2 ;;
+    --yes) YES=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown arg: $1"; usage; exit 1 ;;
+  esac
+done
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "missing command: $1"; }
+
+for c in sgdisk cryptsetup mkfs.fat mkfs.btrfs pacstrap genfstab arch-chroot bootctl; do
+  need "$c"
+done
+
+[[ -b "$DISK" ]] || die "not a block device: $DISK"
+[[ -f "$PKGS" ]] || die "missing package list: $PKGS"
+[[ "$(id -u)" -eq 0 ]] || die "run as root"
+
+EFI_PART="${DISK}p1"
+LUKS_PART="${DISK}p2"
+# non-NVMe naming (sda1) fallback
+if [[ ! "$DISK" =~ nvme|mmcblk ]]; then
+  EFI_PART="${DISK}1"
+  LUKS_PART="${DISK}2"
+fi
+
+echo
+echo "============================================================"
+echo "  AppSynergy Linux installer — FULL DISK WIPE"
+echo "============================================================"
+echo "  disk:       $DISK"
+echo "  EFI:        $EFI_PART ($EFI_SIZE FAT32)"
+echo "  LUKS+btrfs: $LUKS_PART (rest of disk)"
+echo "  hostname:   $HOSTNAME"
+echo "  user:       $USER_NAME (bash login; fish installed)"
+echo "  locale:     $LOCALE  keymap: $KEYMAP  tz: $TIMEZONE"
+echo "  kernel:     $KERNEL_MODE"
+echo "============================================================"
+lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS "$DISK" || true
+echo
+
+if [[ "$YES" -ne 1 ]]; then
+  read -r -p "Type the disk path exactly to continue ($DISK): " confirm
+  [[ "$confirm" == "$DISK" ]] || die "aborted (confirmation mismatch)"
+  read -r -p "Type YES to destroy all data: " confirm2
+  [[ "$confirm2" == "YES" ]] || die "aborted"
+fi
+
+# Network for pacstrap
+if ! ping -c1 -W3 archlinux.org >/dev/null 2>&1 && ! ping -c1 -W3 geo.mirror.pkgbuild.com >/dev/null 2>&1; then
+  echo "WARN: no network ping; attempting pacstrap anyway (may fail)"
+fi
+
+echo "==> Partitioning $DISK"
+wipefs -af "$DISK" || true
+sgdisk --zap-all "$DISK"
+sgdisk -n1:0:+"${EFI_SIZE}" -t1:EF00 -c1:EFI "$DISK"
+sgdisk -n2:0:0 -t2:8309 -c2:cryptroot "$DISK"
+partprobe "$DISK" || true
+sleep 1
+[[ -b "$EFI_PART" && -b "$LUKS_PART" ]] || die "partitions not found after sgdisk"
+
+echo "==> LUKS format"
+echo "    You will type a NEW volume passphrase TWICE."
+echo "    This unlocks the whole disk (btrfs). Store it offline."
+echo "    TPM unlock is enrolled AFTER first successful boot (appsynergy-tpm-enroll)."
+cryptsetup luksFormat --type luks2 --pbkdf argon2id "$LUKS_PART"
+echo "==> Opening LUKS (type the same passphrase once more)"
+cryptsetup open "$LUKS_PART" "$CRYPTNAME"
+
+echo "==> Filesystems"
+mkfs.fat -F32 -n EFI "$EFI_PART"
+mkfs.btrfs -f -L appsynergy "/dev/mapper/${CRYPTNAME}"
+
+echo "==> btrfs subvolumes"
+mount "/dev/mapper/${CRYPTNAME}" /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@log
+btrfs subvolume create /mnt/@cache
+btrfs subvolume create /mnt/@snapshots
+umount /mnt
+
+mkdir -p "$MNT"
+mount -o subvol=@,compress=zstd:3,noatime "/dev/mapper/${CRYPTNAME}" "$MNT"
+mkdir -p "$MNT"/{boot,home,var/log,var/cache,.snapshots}
+mount -o subvol=@home,compress=zstd:3,noatime "/dev/mapper/${CRYPTNAME}" "$MNT/home"
+mount -o subvol=@log,compress=zstd:3,noatime "/dev/mapper/${CRYPTNAME}" "$MNT/var/log"
+mount -o subvol=@cache,compress=zstd:3,noatime "/dev/mapper/${CRYPTNAME}" "$MNT/var/cache"
+mount -o subvol=@snapshots,compress=zstd:3,noatime "/dev/mapper/${CRYPTNAME}" "$MNT/.snapshots"
+mount "$EFI_PART" "$MNT/boot"
+
+mapfile -t PKG_LIST < <(grep -vE '^\s*(#|$)' "$PKGS")
+[[ ${#PKG_LIST[@]} -gt 0 ]] || die "empty package list"
+
+# Kernel packages from repo when not using local igpu
+if [[ "$KERNEL_MODE" == "repo" ]]; then
+  PKG_LIST+=(linux linux-headers)
+elif [[ "$KERNEL_MODE" == "local" ]]; then
+  shopt -s nullglob
+  LOCAL_PKGS=("$LOCAL_PKGDIR"/linux-cachyos-igpu-7*.pkg.tar.zst)
+  LOCAL_HDR=("$LOCAL_PKGDIR"/linux-cachyos-igpu-headers-7*.pkg.tar.zst)
+  shopt -u nullglob
+  [[ ${#LOCAL_PKGS[@]} -ge 1 && ${#LOCAL_HDR[@]} -ge 1 ]] || \
+    die "kernel mode local but missing pkgs in $LOCAL_PKGDIR (copy igpu + headers .pkg.tar.zst there before build)"
+else
+  die "kernel mode must be repo or local (got: $KERNEL_MODE)"
+fi
+
+echo "==> pacstrap (${#PKG_LIST[@]} packages)"
+# Prefer clean mirrors during install (no joke hostnames)
+appsynergy-sanitize-mirrors 2>/dev/null || true
+pacstrap -K "$MNT" "${PKG_LIST[@]}"
+# Target system: same mirror hygiene + no pride/flash theme packs (never in list)
+appsynergy-sanitize-mirrors 2>/dev/null || true
+if [[ -f /etc/pacman.d/mirrorlist ]]; then
+  cp -a /etc/pacman.d/mirrorlist "$MNT/etc/pacman.d/mirrorlist"
+  arch-chroot "$MNT" bash -c 'command -v appsynergy-sanitize-mirrors >/dev/null && appsynergy-sanitize-mirrors || sed -E -i "/archlinux\\.gay/d; /\\.gay\\//d" /etc/pacman.d/mirrorlist'
+fi
+
+if [[ "$KERNEL_MODE" == "local" ]]; then
+  echo "==> Installing local kernel packages"
+  mkdir -p "$MNT/root/pkgs"
+  cp -a "${LOCAL_PKGS[0]}" "${LOCAL_HDR[0]}" "$MNT/root/pkgs/"
+  arch-chroot "$MNT" bash -c 'pacman -U --noconfirm /root/pkgs/*.pkg.tar.zst'
+fi
+
+echo "==> Register public [appsynergy] package repo on target"
+if ! grep -q '^\[appsynergy\]' "$MNT/etc/pacman.conf"; then
+  cat >> "$MNT/etc/pacman.conf" <<'PACEOF'
+
+[appsynergy]
+SigLevel = Optional TrustAll
+Server = https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64
+PACEOF
+fi
+mkdir -p "$MNT/etc/pacman.conf.d" "$MNT/etc/pacman.d"
+[[ -f /etc/pacman.conf.d/appsynergy.conf ]] && cp -a /etc/pacman.conf.d/appsynergy.conf "$MNT/etc/pacman.conf.d/"
+[[ -f /etc/pacman.d/appsynergy-mirrorlist ]] && cp -a /etc/pacman.d/appsynergy-mirrorlist "$MNT/etc/pacman.d/"
+# Prefer packages from public repo when reachable
+arch-chroot "$MNT" pacman -Sy --noconfirm appsynergy-mirrorlist appsynergy-branding 2>/dev/null \
+  || echo "WARN: could not pull appsynergy-mirrorlist/branding yet (network/repo)"
+
+# Local browser packages (Brave required; Thorium if present in payload)
+echo "==> Local browser packages (no Firefox)"
+mkdir -p "$MNT/root/pkgs"
+shopt -s nullglob
+BROWSER_PKGS=("$LOCAL_PKGDIR"/brave-bin-*.pkg.tar.zst "$LOCAL_PKGDIR"/thorium-browser-bin-*.pkg.tar.zst)
+shopt -u nullglob
+if [[ ${#BROWSER_PKGS[@]} -ge 1 ]]; then
+  cp -a "${BROWSER_PKGS[@]}" "$MNT/root/pkgs/"
+  arch-chroot "$MNT" bash -c '
+    shopt -s nullglob
+    pkgs=(/root/pkgs/brave-bin-*.pkg.tar.zst /root/pkgs/thorium-browser-bin-*.pkg.tar.zst)
+    if ((${#pkgs[@]})); then pacman -U --noconfirm "${pkgs[@]}"; fi
+  '
+  echo "    installed: ${BROWSER_PKGS[*]}"
+else
+  echo "    WARN: no brave-bin / thorium pkgs in $LOCAL_PKGDIR — install after boot"
+fi
+
+echo "==> fstab"
+genfstab -U "$MNT" >> "$MNT/etc/fstab"
+
+LUKS_UUID=$(blkid -s UUID -o value "$LUKS_PART")
+ROOT_UUID=$(blkid -s UUID -o value "/dev/mapper/${CRYPTNAME}")
+
+# crypttab for sd-encrypt (passphrase always; TPM added later by appsynergy-tpm-enroll)
+cat > "$MNT/etc/crypttab" <<EOF
+${CRYPTNAME} UUID=${LUKS_UUID} none luks,discard,x-initrd.attach
+EOF
+# initramfs copy of crypttab
+mkdir -p "$MNT/etc/crypttab.initramfs.d" 2>/dev/null || true
+cp -a "$MNT/etc/crypttab" "$MNT/etc/crypttab.initramfs" 2>/dev/null || true
+
+echo "==> Locale / time / hostname"
+arch-chroot "$MNT" bash -c "
+set -euo pipefail
+ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
+hwclock --systohc
+sed -i 's/^#${LOCALE}/${LOCALE}/' /etc/locale.gen || echo '${LOCALE} UTF-8' >> /etc/locale.gen
+locale-gen
+echo 'LANG=${LOCALE}' > /etc/locale.conf
+echo 'KEYMAP=${KEYMAP}' > /etc/vconsole.conf
+echo '${HOSTNAME}' > /etc/hostname
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+"
+
+echo "==> Branding os-release"
+cat > "$MNT/etc/os-release" <<EOF
+NAME="AppSynergy Linux"
+PRETTY_NAME="AppSynergy Linux"
+ID=appsynergy-linux
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="0;36"
+HOME_URL="https://git.appsynergy.io/imabee"
+DOCUMENTATION_URL="https://git.appsynergy.io/imabee"
+SUPPORT_URL="https://git.appsynergy.io/imabee"
+LOGO=appsynergy-linux
+EOF
+
+echo "==> mkinitcpio sd-encrypt hooks (passphrase + future TPM)"
+# systemd-based initramfs so systemd-cryptenroll TPM tokens work at boot
+if grep -qE '^HOOKS=' "$MNT/etc/mkinitcpio.conf"; then
+  sed -i -E 's|^HOOKS=.*|HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)|' \
+    "$MNT/etc/mkinitcpio.conf"
+else
+  echo 'HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)' \
+    >> "$MNT/etc/mkinitcpio.conf"
+fi
+# MODULES: Keychron Mac mode (05ac:024f) needs hid_apple in image if modular
+if ! grep -qE '^MODULES=.*hid_apple' "$MNT/etc/mkinitcpio.conf"; then
+  if grep -qE '^MODULES=\(\)' "$MNT/etc/mkinitcpio.conf"; then
+    sed -i 's/^MODULES=()/MODULES=(hid_apple)/' "$MNT/etc/mkinitcpio.conf"
+  elif grep -qE '^MODULES=\([^)]' "$MNT/etc/mkinitcpio.conf"; then
+    sed -i -E 's|^MODULES=\((.*)\)|MODULES=(\1 hid_apple)|' "$MNT/etc/mkinitcpio.conf"
+  fi
+fi
+
+echo "==> Users (set passwords interactively)"
+arch-chroot "$MNT" bash -c "
+set -euo pipefail
+echo 'Root password:'
+passwd
+useradd -m -G wheel,docker -s /bin/bash '${USER_NAME}' || true
+echo 'Password for ${USER_NAME}:'
+passwd '${USER_NAME}'
+# wheel sudo
+mkdir -p /etc/sudoers.d
+echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/wheel
+chmod 440 /etc/sudoers.d/wheel
+"
+
+echo "==> systemd-boot"
+arch-chroot "$MNT" bootctl install
+
+# Detect vmlinuz/initramfs names
+VMLINUZ=$(arch-chroot "$MNT" bash -c 'ls /boot/vmlinuz-* | head -1 | xargs -n1 basename')
+INITRAMFS=$(arch-chroot "$MNT" bash -c 'ls /boot/initramfs-*.img | grep -v fallback | head -1 | xargs -n1 basename')
+[[ -n "$VMLINUZ" && -n "$INITRAMFS" ]] || die "could not find kernel images in /boot"
+
+mkdir -p "$MNT/boot/loader/entries"
+cat > "$MNT/boot/loader/loader.conf" <<EOF
+default appsynergy.conf
+timeout 3
+console-mode keep
+EOF
+
+cat > "$MNT/boot/loader/entries/appsynergy.conf" <<EOF
+title   AppSynergy Linux
+linux   /${VMLINUZ}
+initrd  /intel-ucode.img
+initrd  /${INITRAMFS}
+options rd.luks.name=${LUKS_UUID}=${CRYPTNAME} root=/dev/mapper/${CRYPTNAME} rootflags=subvol=@ rw zswap.enabled=0 nowatchdog
+EOF
+
+echo "==> rebuild initramfs"
+arch-chroot "$MNT" mkinitcpio -P
+
+echo "==> enable services"
+arch-chroot "$MNT" systemctl enable NetworkManager sddm sshd docker fstrim.timer bluetooth || true
+
+# Agent-friendly shell note + ship appsynergy docs onto target
+mkdir -p "$MNT/etc/appsynergy"
+cat > "$MNT/etc/appsynergy/SHELL-POLICY.txt" <<'EOF'
+AppSynergy Linux: system and agent automation use bash.
+fish is installed for interactive use only.
+Login shell default: /bin/bash
+EOF
+cp -a /etc/appsynergy/BAZEL-HOST.txt /etc/appsynergy/README-INSTALL.txt \
+  /etc/appsynergy/packages-target.txt /etc/appsynergy/machine.env \
+  "$MNT/etc/appsynergy/" 2>/dev/null || true
+# bazelisk provides bazelisk; give a conventional name without clobbering ~/bin/bazel
+if arch-chroot "$MNT" command -v bazelisk >/dev/null 2>&1; then
+  arch-chroot "$MNT" ln -sfn /usr/bin/bazelisk /usr/local/bin/bazelisk
+  # only create /usr/local/bin/bazel if absent — user farm wrapper goes in ~/bin
+  arch-chroot "$MNT" bash -c '[[ -e /usr/local/bin/bazel ]] || ln -sfn /usr/bin/bazelisk /usr/local/bin/bazel'
+fi
+
+
+cat > "$MNT/etc/motd" <<'EOF'
+
+  AppSynergy Linux
+  pacman -Syu to update. Kernel: see uname -r.
+  TPM unlock: after a good passphrase boot, see /etc/appsynergy/TPM.txt
+
+EOF
+
+cat > "$MNT/etc/appsynergy/TPM.txt" <<EOF
+LUKS device: ${LUKS_PART}
+LUKS UUID:   ${LUKS_UUID}
+Mapper:      ${CRYPTNAME}
+
+Passphrase: set during install (luksFormat). ALWAYS kept as recovery.
+
+TPM unlock (after 1–2 good passphrase boots):
+
+  sudo appsynergy-tpm-enroll
+
+Or manually:
+
+  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 ${LUKS_PART}
+  # Secure Boot is off on this board today; PCR7 still works for "state change" binding.
+  # If enroll fails, try: --tpm2-pcrs=0+7  or omit PCRs for looser binding.
+
+  sudo mkinitcpio -P
+  reboot
+
+Expect: no password prompt if TPM OK; passphrase still works if TPM fails.
+Never remove the passphrase slot.
+EOF
+
+# Install helpers into target
+for bin in appsynergy-tpm-enroll appsynergy-sanitize-mirrors; do
+  if [[ -x "/usr/local/bin/$bin" ]]; then
+    cp -a "/usr/local/bin/$bin" "$MNT/usr/local/bin/"
+  fi
+done
+echo "${LUKS_PART}" > "$MNT/etc/appsynergy/luks-device"
+echo "${LUKS_UUID}" > "$MNT/etc/appsynergy/luks-uuid"
+
+# Default Plasma look: Breeze Dark only (no third-party themes)
+mkdir -p "$MNT/etc/skel/.config" "$MNT/etc/sddm.conf.d"
+[[ -f /etc/skel/.config/kdeglobals ]] && cp -a /etc/skel/.config/kdeglobals "$MNT/etc/skel/.config/"
+[[ -f /etc/sddm.conf.d/appsynergy.conf ]] && cp -a /etc/sddm.conf.d/appsynergy.conf "$MNT/etc/sddm.conf.d/"
+# Same defaults for the installed user home
+if [[ -d "$MNT/home/${USER_NAME}" ]]; then
+  mkdir -p "$MNT/home/${USER_NAME}/.config"
+  [[ -f /etc/skel/.config/kdeglobals ]] && cp -a /etc/skel/.config/kdeglobals "$MNT/home/${USER_NAME}/.config/"
+  arch-chroot "$MNT" chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config"
+fi
+
+sync
+echo
+echo "============================================================"
+echo "  INSTALL COMPLETE"
+echo "  1. reboot  (remove USB)"
+echo "  2. At unlock prompt: type VOLUME passphrase (not user password)"
+echo "  3. Login as ${USER_NAME}"
+echo "  4. Later: sudo appsynergy-tpm-enroll"
+echo "============================================================"
+echo "Unmount: umount -R $MNT && cryptsetup close $CRYPTNAME"
+echo "Or just: reboot"

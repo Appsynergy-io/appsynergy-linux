@@ -1,0 +1,9 @@
+NAME="AppSynergy Linux"
+PRETTY_NAME="AppSynergy Linux (live installer)"
+ID=appsynergy-linux
+ID_LIKE=arch
+BUILD_ID=rolling
+ANSI_COLOR="0;36"
+HOME_URL="https://git.appsynergy.io/imabee"
+SUPPORT_URL="https://git.appsynergy.io/imabee"
+LOGO=appsynergy-linux

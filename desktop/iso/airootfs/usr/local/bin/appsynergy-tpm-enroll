@@ -1,0 +1,54 @@
+#!/usr/bin/bash
+# Enroll TPM2 unlock for the AppSynergy root LUKS volume.
+# Run on the INSTALLED system after passphrase unlock works.
+set -euo pipefail
+
+[[ "$(id -u)" -eq 0 ]] || { echo "run: sudo $0"; exit 1; }
+
+DEV=""
+if [[ -f /etc/appsynergy/luks-device ]]; then
+  DEV=$(cat /etc/appsynergy/luks-device)
+fi
+if [[ -z "$DEV" || ! -b "$DEV" ]]; then
+  # discover crypto_LUKS partition
+  DEV=$(lsblk -nrpo NAME,FSTYPE | awk '$2=="crypto_LUKS"{print $1; exit}')
+fi
+[[ -n "$DEV" && -b "$DEV" ]] || { echo "No LUKS device found"; exit 1; }
+
+command -v systemd-cryptenroll >/dev/null || { echo "need systemd-cryptenroll"; exit 1; }
+[[ -e /dev/tpm0 || -e /dev/tpmrm0 ]] || { echo "No TPM device (/dev/tpm0)"; exit 1; }
+
+echo "LUKS device: $DEV"
+echo "Current slots/tokens:"
+cryptsetup luksDump "$DEV" | sed -n '/Keyslots:/,/Tokens:/p;/Tokens:/,/Digests:/p' || cryptsetup luksDump "$DEV" | head -40
+echo
+echo "This keeps your existing passphrase and ADDS a TPM2 token."
+echo "You will be asked for the volume passphrase once to authorize enrollment."
+read -r -p "Continue? [y/N] " a
+[[ "$a" == "y" || "$a" == "Y" ]] || exit 1
+
+# PCR7 = Secure Boot state (stable when SB off; re-enroll if you change SB/firmware policy)
+# If this fails on your firmware, re-run with: APPSYNERGY_TPM_PCRS=0+2+4+7 appsynergy-tpm-enroll
+PCRS="${APPSYNERGY_TPM_PCRS:-7}"
+
+systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs="$PCRS" "$DEV"
+
+# Ensure crypttab asks TPM first path via systemd
+UUID=$(blkid -s UUID -o value "$DEV")
+MAPPER=$(lsblk -nrpo NAME,TYPE | awk '$2=="crypt"{print $1; exit}' | xargs -r basename)
+MAPPER=${MAPPER:-cryptroot}
+
+# Refresh crypttab for tpm2 (passphrase remains fallback)
+cat > /etc/crypttab <<EOF
+${MAPPER} UUID=${UUID} none luks,discard,tpm2-device=auto,x-initrd.attach
+EOF
+cp -a /etc/crypttab /etc/crypttab.initramfs 2>/dev/null || true
+
+echo "==> Rebuilding initramfs"
+mkinitcpio -P
+
+echo
+echo "Done. Reboot. Expect automatic unlock if TPM PCRs match."
+echo "If stuck at passphrase, type volume password (slot still present)."
+echo "List enrollments: systemd-cryptenroll $DEV"
+echo "Wipe TPM slot only: systemd-cryptenroll --wipe-slot=tpm2 $DEV"

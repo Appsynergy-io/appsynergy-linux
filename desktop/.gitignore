@@ -1,0 +1,7 @@
+/work/
+/out/
+/payload/
+*.iso
+iso/airootfs/opt/appsynergy/pkgs/*.pkg.tar.zst
+iso/airootfs/opt/appsynergy/pkgs/*.pkg.tar.zst.sig
+iso/airootfs/opt/appsynergy/pkgs/*.sig

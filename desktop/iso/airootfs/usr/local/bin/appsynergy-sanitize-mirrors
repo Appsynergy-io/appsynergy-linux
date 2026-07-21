@@ -1,0 +1,11 @@
+#!/usr/bin/bash
+# Drop joke / non-neutral Arch mirror hostnames from pacman mirrorlist.
+set -euo pipefail
+ML=/etc/pacman.d/mirrorlist
+[[ -f "$ML" ]] || exit 0
+# remove known joke domains and comment lines that only exist for that purpose
+sed -E -i \
+  -e '/archlinux\.gay/d' \
+  -e '/archlinux\.lgbt/d' \
+  -e '/\.gay\//d' \
+  "$ML" 2>/dev/null || true
