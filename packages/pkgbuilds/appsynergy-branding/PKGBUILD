@@ -1,7 +1,7 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-branding
 pkgver=2
-pkgrel=6
+pkgrel=7
 pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, fastfetch'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-packages'
@@ -49,12 +49,17 @@ package() {
       install -Dm644 "$src/skel/.config/neofetch/config.conf" \
         "$pkgdir/etc/skel/.config/neofetch/config.conf"
     fi
+    # skel fish conf.d is a no-op stub (avoids double with /etc/fish/conf.d)
     if [[ -f "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" ]]; then
       install -Dm644 "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" \
         "$pkgdir/etc/skel/.config/fish/conf.d/appsynergy-greeting.fish"
-      install -Dm644 "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" \
-        "$pkgdir/etc/fish/conf.d/appsynergy-greeting.fish"
     fi
+  fi
+
+  # System fish greeter once — only /etc/fish/conf.d (not also $HOME conf.d)
+  if [[ -f "$src/fish/appsynergy-greeting.fish" ]]; then
+    install -Dm644 "$src/fish/appsynergy-greeting.fish" \
+      "$pkgdir/etc/fish/conf.d/appsynergy-greeting.fish"
   fi
 
   # hicolor icons — LOGO=appsynergy-linux
