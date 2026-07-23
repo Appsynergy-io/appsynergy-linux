@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="appsynergy mark">
-  <path d="M20 12 H10 V52 H20" fill="none" stroke="#4a9bb8" stroke-width="6" stroke-linecap="square"/>
-  <path d="M44 12 H54 V52 H44" fill="none" stroke="#4a9bb8" stroke-width="6" stroke-linecap="square"/>
+  <path d="M18 12 H10 V52 H18" fill="none" stroke="#4a9bb8" stroke-width="5.5" stroke-linecap="square"/>
+  <path d="M46 12 H54 V52 H46" fill="none" stroke="#4a9bb8" stroke-width="5.5" stroke-linecap="square"/>
+  <text x="32" y="42" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, sans-serif" font-size="28" font-weight="700" fill="#4a9bb8">a</text>
 </svg>
