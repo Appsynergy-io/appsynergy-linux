@@ -1,0 +1,22 @@
+[package]
+name = "appsynergy-install"
+version = "0.2.0"
+edition = "2021"
+description = "AppSynergy Linux destructive full-disk installer (live USB)"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "appsynergy-install"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+# regex not needed — stick to std
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"

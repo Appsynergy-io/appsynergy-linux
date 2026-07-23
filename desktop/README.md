@@ -31,12 +31,14 @@ sudo ./scripts/write-usb.sh /dev/sdX
 
 1. Boot USB (UEFI).
 2. `nmtui` if Wi-Fi; Ethernet preferred.
-3. `sudo appsynergy-install`  
+3. `sudo appsynergy-install` (**Rust** installer; source in `installer/`)  
    - Default disk: **`/dev/nvme0n1` (FULL WIPE)**  
-   - Default kernel: **local** igpu packages from `/opt/appsynergy/pkgs`  
-   - Or: `sudo appsynergy-install --kernel repo` for stock `linux`
-4. Set root + `imma` passwords when asked.
-5. Reboot, remove USB, unlock LUKS, login.
+   - Default kernel: **local** packages from `/opt/appsynergy/pkgs`  
+   - Or: `sudo appsynergy-install --kernel repo` for stock `linux`  
+   - Non-interactive passwords:  
+     `sudo appsynergy-install --yes --password-file /path/to/key`  
+     (same passphrase for LUKS + root + user; trailing newline stripped)
+4. Reboot, remove USB, unlock LUKS, login as `imma`.
 
 ## Layout after install
 
@@ -53,9 +55,19 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 | `iso/packages.x86_64` | **live** packages |
 | `iso/airootfs/etc/appsynergy/packages-target.txt` | **target** pacstrap list |
 | `iso/airootfs/etc/appsynergy/machine.env` | disk/hostname/user defaults |
-| `iso/airootfs/usr/local/bin/appsynergy-install` | installer |
-| `iso/airootfs/opt/appsynergy/pkgs/` | local igpu kernel `.pkg.tar.zst` |
+| `installer/` | **Rust** `appsynergy-install` (clap); built by `build-iso.sh` |
+| `iso/airootfs/usr/local/bin/appsynergy-install` | staged release binary |
+| `iso/airootfs/opt/appsynergy/pkgs/` | local kernel/branding/browser `.pkg.tar.zst` |
 | `scripts/stage-rescue-clis.sh` | Copies `grok` + `claude` into live `/usr/local/bin` at build time |
+
+### Installer fixes (vs bash 2026-07-23)
+
+- `os-release`: write `/usr/lib/os-release` only; symlink `/etc/os-release` (no dual-`cp` abort)
+- Branding: no pre-seed of package-owned files; `pacman -U --overwrite '*'`
+- `--password-file` / `APPSYNERGY_KEYFILE` for LUKS + `chpasswd`
+- `/etc/vconsole.conf` before mkinitcpio
+- `efibootmgr` creates AppSynergy NVRAM entry; drops stale Windows/Linux PARTUUIDs
+- Every failure includes the step name
 
 ## Not included (on purpose)
 

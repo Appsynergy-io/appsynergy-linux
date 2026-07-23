@@ -10,6 +10,26 @@ WORK="$ROOT/work"
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root: sudo $0"; exit 1; }
 command -v mkarchiso >/dev/null || { echo "install archiso"; exit 1; }
 
+echo "==> Build appsynergy-install (Rust)"
+INSTALLER_SRC="$ROOT/installer"
+INSTALLER_BIN="$PROFILE/airootfs/usr/local/bin/appsynergy-install"
+build_user="${SUDO_USER:-imma}"
+build_home=$(getent passwd "$build_user" | cut -d: -f6)
+# cargo as the real user (not root) so rustup/toolchain resolves
+if [[ -x "$build_home/.cargo/bin/cargo" ]]; then
+  CARGO="$build_home/.cargo/bin/cargo"
+elif command -v cargo >/dev/null; then
+  CARGO=cargo
+else
+  echo "ERROR: cargo not found for $build_user — install rustup stable"
+  exit 1
+fi
+sudo -u "$build_user" env HOME="$build_home" PATH="$build_home/.cargo/bin:/usr/bin:$PATH" \
+  bash -c "cd '$INSTALLER_SRC' && $CARGO build --release"
+install -m755 "$INSTALLER_SRC/target/release/appsynergy-install" "$INSTALLER_BIN"
+file "$INSTALLER_BIN"
+"$INSTALLER_BIN" --help | head -5 || true
+
 # Refresh local packages into profile (kernel, branding, browsers)
 SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
 PKG_REPO=/home/imma/projects/appsynergy-packages/repo/x86_64
