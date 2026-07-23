@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="AppSynergy Linux">
+  <rect width="64" height="64" rx="14" fill="#1a1f28"/>
+  <path d="M22 14 H14 V50 H22" fill="none" stroke="#4a9bb8" stroke-width="6" stroke-linecap="square"/>
+  <path d="M42 14 H50 V50 H42" fill="none" stroke="#4a9bb8" stroke-width="6" stroke-linecap="square"/>
+</svg>
