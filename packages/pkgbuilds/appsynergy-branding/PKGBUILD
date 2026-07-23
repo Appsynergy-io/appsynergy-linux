@@ -1,12 +1,13 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-branding
 pkgver=2
-pkgrel=11
-pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, fastfetch'
+pkgrel=13
+pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, Plymouth (wordmark, no hub-spoke)'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-packages'
 license=('MIT')
 install=appsynergy-branding.install
+optdepends=('plymouth: animated boot splash (appsynergy theme)')
 # Local sources only (no remote download)
 source=()
 sha256sums=()
@@ -63,11 +64,19 @@ package() {
       "$pkgdir/etc/fish/conf.d/appsynergy-greeting.fish"
   fi
 
-  # hicolor icons — LOGO=appsynergy-linux
+  # hicolor icons — LOGO=appsynergy-linux (wordmark-based; not hub-spoke)
   if [[ -d "$src/icons/hicolor" ]]; then
     while IFS= read -r -d '' f; do
       rel="${f#"$src/icons/"}"
       install -Dm644 "$f" "$pkgdir/usr/share/icons/$rel"
     done < <(find "$src/icons/hicolor" -type f -print0)
+  fi
+
+  # Plymouth theme (wordmark pulse + arc throbber — no hub-spoke)
+  if [[ -d "$src/plymouth/appsynergy" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/plymouth/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/plymouth/themes/$rel"
+    done < <(find "$src/plymouth/appsynergy" -type f -print0)
   fi
 }
