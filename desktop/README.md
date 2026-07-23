@@ -37,8 +37,10 @@ sudo ./scripts/write-usb.sh /dev/sdX
    - Or: `sudo appsynergy-install --kernel repo` for stock `linux`  
    - Non-interactive passwords:  
      `sudo appsynergy-install --yes --password-file /path/to/key`  
-     (same passphrase for LUKS + root + user; trailing newline stripped)
-4. Reboot, remove USB, unlock LUKS, login as `imma`.
+     (same passphrase for LUKS + root + user; trailing newline stripped)  
+   - **TPM enroll** during install when a TPM is present (passphrase kept).  
+     Force: `--tpm` · Skip: `--no-tpm` · PCRs: `--tpm-pcrs 7` (or `APPSYNERGY_TPM_PCRS`)
+4. Reboot, remove USB; TPM should unlock (or type passphrase). Login as `imma`.
 
 ## Layout after install
 
@@ -67,6 +69,7 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 - `--password-file` / `APPSYNERGY_KEYFILE` for LUKS + `chpasswd`
 - `/etc/vconsole.conf` before mkinitcpio
 - `efibootmgr` creates AppSynergy NVRAM entry; drops stale Windows/Linux PARTUUIDs
+- **TPM2 LUKS enroll** after initramfs (`systemd-cryptenroll`); crypttab gets `tpm2-device=auto`; rebuild mkinitcpio
 - Every failure includes the step name
 
 ## Not included (on purpose)

@@ -1,7 +1,12 @@
 #!/usr/bin/bash
-# Enroll TPM2 unlock for the AppSynergy root LUKS volume.
-# Run on the INSTALLED system after passphrase unlock works.
+# Enroll (or re-enroll) TPM2 unlock for the AppSynergy root LUKS volume.
+# Prefer appsynergy-install's built-in TPM step on first install.
+# Use this on the running system after firmware/SB changes, or if install skipped TPM.
 set -euo pipefail
+if [[ -f /etc/appsynergy/tpm-enrolled ]]; then
+  echo "Note: TPM was already enrolled at install (see /etc/appsynergy/TPM.txt)."
+  echo "Continuing will add/replace a TPM2 token (passphrase still required once)."
+fi
 
 [[ "$(id -u)" -eq 0 ]] || { echo "run: sudo $0"; exit 1; }
 

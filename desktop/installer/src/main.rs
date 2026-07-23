@@ -7,6 +7,7 @@
 //! - `--password-file` / `APPSYNERGY_KEYFILE` for LUKS + chpasswd
 //! - `/etc/vconsole.conf` before first mkinitcpio
 //! - `efibootmgr` NVRAM entry for new ESP; drop stale PARTUUIDs
+//! - TPM2 LUKS enroll during install (passphrase kept); `--no-tpm` to skip
 //! - every failure includes the step name
 
 mod cmd;
@@ -49,6 +50,15 @@ fn try_main() -> Result<()> {
     ] {
         cmd::need(bin)?;
     }
+    if cfg.tpm {
+        // Prefer systemd-cryptenroll; cryptsetup is already required.
+        if !cmd::which("systemd-cryptenroll") {
+            if cfg.tpm_required {
+                bail!("TPM enroll requested but systemd-cryptenroll missing");
+            }
+            eprintln!("WARN: systemd-cryptenroll missing — TPM step will skip");
+        }
+    }
     if !cfg.disk.exists() {
         bail!("not a block device: {}", cfg.disk.display());
     }
@@ -78,6 +88,8 @@ fn try_main() -> Result<()> {
     step("bootloader", || install_bootloader(&cfg))?;
     step("efibootmgr", || fix_efi_nvram(&cfg))?;
     step("initramfs", || rebuild_initramfs(&cfg))?;
+    // TPM after first initramfs so sd-encrypt + crypttab exist; rebuild again if enrolled.
+    step("tpm-enroll", || enroll_tpm(&cfg))?;
     step("services", || enable_services(&cfg))?;
     step("finalize", || finalize(&cfg))?;
 
@@ -85,9 +97,15 @@ fn try_main() -> Result<()> {
     println!("============================================================");
     println!("  INSTALL COMPLETE");
     println!("  1. reboot  (remove USB)");
-    println!("  2. At unlock prompt: type VOLUME passphrase");
+    if cfg.tpm {
+        println!("  2. TPM unlock should open the disk (passphrase still works)");
+    } else {
+        println!("  2. At unlock prompt: type VOLUME passphrase");
+    }
     println!("  3. Login as {}", cfg.user);
-    println!("  4. Later: sudo appsynergy-tpm-enroll");
+    if !cfg.tpm {
+        println!("  4. Optional later: sudo appsynergy-tpm-enroll");
+    }
     println!("============================================================");
     println!(
         "Unmount: umount -R {} && cryptsetup close {}",
@@ -132,6 +150,19 @@ fn banner(cfg: &Config) {
         } else {
             "interactive prompts"
         }
+    );
+    println!(
+        "  tpm:        {} (pcrs={})",
+        if cfg.tpm {
+            if cfg.tpm_required {
+                "enroll (required)"
+            } else {
+                "enroll (auto)"
+            }
+        } else {
+            "skip"
+        },
+        cfg.tpm_pcrs
     );
     println!("============================================================");
     let _ = cmd::run(
@@ -956,6 +987,114 @@ fn rebuild_initramfs(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Enroll TPM2 unlock for the LUKS volume (passphrase slot kept).
+/// Runs from the live host against the real block device; then rewrites
+/// target crypttab and rebuilds initramfs in the chroot.
+fn enroll_tpm(cfg: &Config) -> Result<()> {
+    if !cfg.tpm {
+        println!("    skip (TPM enrollment disabled)");
+        return Ok(());
+    }
+    if !cmd::which("systemd-cryptenroll") {
+        if cfg.tpm_required {
+            bail!("systemd-cryptenroll not found");
+        }
+        eprintln!("WARN: systemd-cryptenroll missing — skip TPM");
+        return Ok(());
+    }
+    let tpm_ok = Path::new("/dev/tpm0").exists() || Path::new("/dev/tpmrm0").exists();
+    if !tpm_ok {
+        if cfg.tpm_required {
+            bail!("no TPM device (/dev/tpm0 or /dev/tpmrm0)");
+        }
+        eprintln!("WARN: no TPM device — skip TPM enrollment");
+        return Ok(());
+    }
+
+    let dev = cfg.luks_part.to_string_lossy();
+    println!("    LUKS device: {dev}");
+    println!("    PCRS: {}", cfg.tpm_pcrs);
+    println!("    passphrase slot kept as recovery");
+
+    // systemd-cryptenroll needs the volume passphrase once.
+    let keyfile_path = PathBuf::from("/tmp/appsynergy-tpm-unlock.key");
+    let key_owned: Option<PathBuf> = if let Some(ref pw) = cfg.password {
+        fs::write(&keyfile_path, pw).context("write temp unlock keyfile")?;
+        let _ = cmd::run("tpm-enroll", "chmod", &["600", &keyfile_path.to_string_lossy()]);
+        Some(keyfile_path.clone())
+    } else {
+        None
+    };
+
+    let pcrs = cfg.tpm_pcrs.clone();
+    let result = (|| -> Result<()> {
+        if let Some(ref kf) = key_owned {
+            cmd::run(
+                "tpm-enroll",
+                "systemd-cryptenroll",
+                &[
+                    "--tpm2-device=auto",
+                    &format!("--tpm2-pcrs={pcrs}"),
+                    &format!("--unlock-key-file={}", kf.display()),
+                    &dev,
+                ],
+            )?;
+        } else {
+            // Interactive: cryptenroll prompts for passphrase
+            println!("    type LUKS passphrase when systemd-cryptenroll asks");
+            cmd::run(
+                "tpm-enroll",
+                "systemd-cryptenroll",
+                &[
+                    "--tpm2-device=auto",
+                    &format!("--tpm2-pcrs={pcrs}"),
+                    &dev,
+                ],
+            )?;
+        }
+        Ok(())
+    })();
+
+    // Always scrub temp keyfile
+    if key_owned.is_some() {
+        let _ = fs::remove_file(&keyfile_path);
+    }
+
+    if let Err(e) = result {
+        if cfg.tpm_required {
+            return Err(e).context("TPM enrollment failed");
+        }
+        eprintln!("WARN: TPM enrollment failed (continuing): {e:#}");
+        eprintln!("    re-run after boot: sudo appsynergy-tpm-enroll");
+        return Ok(());
+    }
+
+    // crypttab: ask TPM; passphrase remains a LUKS keyslot fallback
+    let luks_uuid = fs::read_to_string(cfg.mnt.join("etc/appsynergy/luks-uuid"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if luks_uuid.is_empty() {
+        bail!("missing luks-uuid after enroll");
+    }
+    let crypttab = format!(
+        "{} UUID={} none luks,discard,tpm2-device=auto,x-initrd.attach\n",
+        cfg.cryptname, luks_uuid
+    );
+    fs::write(cfg.mnt.join("etc/crypttab"), &crypttab)?;
+    let _ = fs::write(cfg.mnt.join("etc/crypttab.initramfs"), &crypttab);
+    fs::write(cfg.mnt.join("etc/appsynergy/tpm-enrolled"), "1\n")?;
+    fs::write(
+        cfg.mnt.join("etc/appsynergy/tpm-pcrs"),
+        format!("{}\n", cfg.tpm_pcrs),
+    )?;
+
+    println!("    rebuilding initramfs with tpm2 crypttab");
+    cmd::arch_chroot(&cfg.mnt, "mkinitcpio -P")?;
+    println!("    TPM2 token enrolled (PCRS={})", cfg.tpm_pcrs);
+    Ok(())
+}
+
 fn enable_services(cfg: &Config) -> Result<()> {
     cmd::arch_chroot_ok(
         &cfg.mnt,
@@ -997,33 +1136,57 @@ if command -v bazelisk >/dev/null 2>&1; then
 fi
 "#,
     );
-    fs::write(
-        cfg.mnt.join("etc/motd"),
-        "\n  AppSynergy Linux\n  pacman -Syu to update. Kernel: see uname -r.\n  TPM unlock: after a good passphrase boot, see /etc/appsynergy/TPM.txt\n\n",
-    )?;
+    let tpm_enrolled = cfg.mnt.join("etc/appsynergy/tpm-enrolled").is_file();
+    let motd = if tpm_enrolled {
+        "\n  AppSynergy Linux\n  pacman -Syu to update. Kernel: see uname -r.\n  Disk: TPM unlock (passphrase still works). See /etc/appsynergy/TPM.txt\n\n"
+    } else {
+        "\n  AppSynergy Linux\n  pacman -Syu to update. Kernel: see uname -r.\n  TPM unlock: sudo appsynergy-tpm-enroll — see /etc/appsynergy/TPM.txt\n\n"
+    };
+    fs::write(cfg.mnt.join("etc/motd"), motd)?;
     let luks_uuid = fs::read_to_string(cfg.mnt.join("etc/appsynergy/luks-uuid"))
         .unwrap_or_default()
         .trim()
         .to_string();
-    fs::write(
-        cfg.mnt.join("etc/appsynergy/TPM.txt"),
+    let tpm_doc = if tpm_enrolled {
         format!(
             "LUKS device: {}\n\
 LUKS UUID:   {luks_uuid}\n\
 Mapper:      {}\n\n\
-Passphrase: set during install. ALWAYS kept as recovery.\n\n\
-TPM unlock (after 1–2 good passphrase boots):\n\n\
+TPM2 was enrolled at install time (PCRs: {}).\n\
+Passphrase keyslot is ALWAYS kept as recovery.\n\n\
+Expect automatic unlock when PCRs match. If stuck at passphrase, type the\n\
+volume password (still valid).\n\n\
+Re-enroll after firmware/Secure Boot policy changes:\n\
+  sudo appsynergy-tpm-enroll\n\n\
+List: systemd-cryptenroll {}\n\
+Wipe TPM only: systemd-cryptenroll --wipe-slot=tpm2 {}\n",
+            cfg.luks_part.display(),
+            cfg.cryptname,
+            cfg.tpm_pcrs,
+            cfg.luks_part.display(),
+            cfg.luks_part.display()
+        )
+    } else {
+        format!(
+            "LUKS device: {}\n\
+LUKS UUID:   {luks_uuid}\n\
+Mapper:      {}\n\n\
+Passphrase: set during install. ALWAYS kept as recovery.\n\
+TPM was not enrolled at install (no TPM, --no-tpm, or enroll failed).\n\n\
+Enroll after a good passphrase boot:\n\n\
   sudo appsynergy-tpm-enroll\n\n\
 Or manually:\n\n\
-  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 {}\n\
+  sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs={} {}\n\
   sudo mkinitcpio -P\n\
   reboot\n\n\
 Never remove the passphrase slot.\n",
             cfg.luks_part.display(),
             cfg.cryptname,
+            cfg.tpm_pcrs,
             cfg.luks_part.display()
-        ),
-    )?;
+        )
+    };
+    fs::write(cfg.mnt.join("etc/appsynergy/TPM.txt"), tpm_doc)?;
     for bin in ["appsynergy-tpm-enroll", "appsynergy-sanitize-mirrors"] {
         let src = Path::new("/usr/local/bin").join(bin);
         if src.is_file() {

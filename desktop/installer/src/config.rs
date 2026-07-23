@@ -36,7 +36,8 @@ impl std::fmt::Display for KernelMode {
     about = "AppSynergy Linux — destructive full-disk installer (live USB)",
     long_about = "DESTROYS ALL DATA on the target disk.\n\
 Environment: see /etc/appsynergy/machine.env\n\
-Password file: APPSYNERGY_KEYFILE or --password-file (LUKS + root + user, no trailing newline preferred)."
+Password file: APPSYNERGY_KEYFILE or --password-file (LUKS + root + user, no trailing newline preferred).\n\
+TPM: enrolled during install when a TPM is present (default). Use --no-tpm to skip."
 )]
 pub struct Cli {
     /// Target block device (full wipe).
@@ -63,6 +64,19 @@ pub struct Cli {
     /// Login user override.
     #[arg(long, env = "APPSYNERGY_USER")]
     pub user: Option<String>,
+
+    /// Force TPM2 LUKS enrollment (fail install if it cannot complete).
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub tpm: bool,
+
+    /// Skip TPM enrollment even if a TPM is present.
+    #[arg(long = "no-tpm", action = clap::ArgAction::SetTrue)]
+    pub no_tpm: bool,
+
+    /// PCR bank list for systemd-cryptenroll (default 7 = Secure Boot state).
+    /// Env: APPSYNERGY_TPM_PCRS.
+    #[arg(long, env = "APPSYNERGY_TPM_PCRS", default_value = "7")]
+    pub tpm_pcrs: String,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +98,11 @@ pub struct Config {
     pub mnt: PathBuf,
     pub local_pkgdir: PathBuf,
     pub pkgs_file: PathBuf,
+    /// Attempt TPM2 LUKS enrollment after boot setup.
+    pub tpm: bool,
+    /// Fail install if TPM enroll was requested but fails.
+    pub tpm_required: bool,
+    pub tpm_pcrs: String,
 }
 
 impl Config {
@@ -150,6 +169,33 @@ impl Config {
             }
         };
 
+        let tpm_pcrs = if cli.tpm_pcrs.is_empty() {
+            env.get("APPSYNERGY_TPM_PCRS")
+                .cloned()
+                .unwrap_or_else(|| "7".into())
+        } else {
+            cli.tpm_pcrs.clone()
+        };
+
+        // TPM policy: --no-tpm wins; --tpm requires success; else env; else auto if device present.
+        let tpm_env_off = env
+            .get("APPSYNERGY_TPM")
+            .map(|s| matches!(s.to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
+            .unwrap_or(false);
+        let tpm_env_on = env
+            .get("APPSYNERGY_TPM")
+            .map(|s| matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+        let tpm_present = Path::new("/dev/tpm0").exists() || Path::new("/dev/tpmrm0").exists();
+        let (tpm, tpm_required) = if cli.no_tpm || tpm_env_off {
+            (false, false)
+        } else if cli.tpm || tpm_env_on {
+            (true, true)
+        } else {
+            // default: enroll when TPM hardware is visible on the live system
+            (tpm_present, false)
+        };
+
         Ok(Self {
             disk,
             efi_part,
@@ -167,6 +213,9 @@ impl Config {
             mnt: PathBuf::from(MNT),
             local_pkgdir: PathBuf::from(LOCAL_PKGDIR),
             pkgs_file: PathBuf::from(PKGS),
+            tpm,
+            tpm_required,
+            tpm_pcrs,
         })
     }
 }
