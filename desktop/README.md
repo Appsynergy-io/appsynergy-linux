@@ -1,12 +1,31 @@
-# AppSynergy Linux (desktop installer USB)
+# AppSynergy Linux (unified installer USB)
 
-Basic **archiso** image for reimaging the Z690 workstation.
+**archiso** image + Rust `appsynergy-install` with two target variants:
+
+| Variant | Command | Target |
+|---------|---------|--------|
+| **desktop** (default) | `appsynergy-install` | Z690 Plasma workstation |
+| **server** | `appsynergy-install --variant server` | OVH / tunnel host (no DE) |
 
 - Live environment: console, NetworkManager/iwd, install tools
-- Target install: Plasma (Breeze), LUKS+btrfs, dev stack, **one** kernel path
-- Locale: `en_US.UTF-8`, timezone `America/Sao_Paulo`, keymap `us`
-- Branding: `os-release` + ASCII banner (not Cachy/Arch chrome)
-- Shell: **bash** default (fish installed on target for optional interactive use)
+- Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `linux-appsynergy`
+- Server target: headless, nftables + WireGuard + networkd, `linux-appsynergy-server-skylake + -tigerlake`
+- Shell: **bash** default (fish optional interactive)
+
+### Server OS (keep list)
+
+Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
+
+**`/home/imma/projects/kernel/docs/SERVER-OS.md`**
+
+| Keep (summary) | Skip |
+|----------------|------|
+| nft fail-closed, key-only SSH, TPM→SSH→console unlock | agent, pets, console SPA |
+| sysctl FQ/BBR, journald caps, watchdog | RAUC, verity, UKI |
+| AppArmor | Plasma, NM, browsers |
+| WG / nft / namespaces / cgroup v2 / XDP-ready kernel | appsynergy-linux fabric apps |
+| containerd + nerdctl + cni-plugins | edgectl / custom orchestrator CLIs |
+| same LUKS+btrfs layout as desktop | |
 
 ## Build ISO
 
@@ -32,15 +51,16 @@ sudo ./scripts/write-usb.sh /dev/sdX
 1. Boot USB (UEFI).
 2. `nmtui` if Wi-Fi; Ethernet preferred.
 3. `sudo appsynergy-install` (**Rust** installer; source in `installer/`)  
-   - Default disk: **`/dev/nvme0n1` (FULL WIPE)**  
-   - Default kernel: **local** packages from `/opt/appsynergy/pkgs`  
-   - Or: `sudo appsynergy-install --kernel repo` for stock `linux`  
-   - Non-interactive passwords:  
-     `sudo appsynergy-install --yes --password-file /path/to/key`  
-     (same passphrase for LUKS + root + user; trailing newline stripped)  
-   - **TPM enroll** during install when a TPM is present (passphrase kept).  
-     Force: `--tpm` · Skip: `--no-tpm` · PCRs: `--tpm-pcrs 7` (or `APPSYNERGY_TPM_PCRS`)
-4. Reboot, remove USB; TPM should unlock (or type passphrase). Login as `imma`.
+   - **`--variant desktop|server`** (default desktop; env `APPSYNERGY_VARIANT`)  
+   - Desktop disk default: **`/dev/nvme0n1`**; server default: **`/dev/sda`**  
+   - Kernel local pkgs: desktop → `linux-appsynergy*`; server → `linux-appsynergy-server-skylake` + `-tigerlake` (+ headers)  
+   - Or: `--kernel repo` for stock Arch `linux`  
+   - Non-interactive: `--yes --password-file /path/to/key`  
+   - **TPM enroll** when TPM present (`--tpm` / `--no-tpm` / `--tpm-pcrs`)  
+   - **Server SSH**: `--ssh-pubkey /path/to/id_ed25519.pub` → root key-only + **initrd dropbear unlock** if TPM fails  
+   - Same disk as desktop: **full-disk LUKS2 + btrfs**
+4. Reboot, remove USB. Desktop: Plasma. Server: TPM unlock (or `ssh root@ip` in initrd for passphrase) then SSH as root.
+5. Server **does not** ship appsynergy-linux apps (agent/pets/console/RAUC).
 
 ## Layout after install
 
@@ -55,8 +75,11 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 |------|------|
 | `iso/` | archiso profile |
 | `iso/packages.x86_64` | **live** packages |
-| `iso/airootfs/etc/appsynergy/packages-target.txt` | **target** pacstrap list |
-| `iso/airootfs/etc/appsynergy/machine.env` | disk/hostname/user defaults |
+| `iso/airootfs/etc/appsynergy/packages-target.txt` | **desktop** pacstrap list |
+| `iso/airootfs/etc/appsynergy/packages-target-server.txt` | **server** pacstrap list |
+| `iso/airootfs/etc/appsynergy/machine.env` | desktop disk/hostname defaults |
+| `iso/airootfs/etc/appsynergy/machine-server.env` | server defaults (UTC, /dev/sda) |
+| `iso/airootfs/etc/appsynergy/sysctl-server.conf` | tunnel/WG sysctl (server) |
 | `installer/` | **Rust** `appsynergy-install` (clap); built by `build-iso.sh` |
 | `iso/airootfs/usr/local/bin/appsynergy-install` | staged release binary |
 | `iso/airootfs/opt/appsynergy/pkgs/` | local kernel/branding/browser `.pkg.tar.zst` |
@@ -109,6 +132,6 @@ for Chromium/Brave hybrid passkeys; user groups include `lp`/`rfkill`/`audio`/`i
 | Go migrator | `go` |
 | Cargo fallback | `rustup` |
 | musl release | `musl` `kernel-headers-musl` |
-| Containers | `docker` `docker-compose` `fuse-overlayfs` |
+| Containers | `containerd` `nerdctl` `cni-plugins` (not docker) |
 
 **Not packaged on ISO:** NativeLink binary tree, farm `~/bin/bazel` wrapper — **restore from backup** after install.

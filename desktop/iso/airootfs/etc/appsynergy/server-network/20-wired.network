@@ -1,0 +1,18 @@
+# Match first non-loopback Ethernet; adjust Name= after first boot if needed.
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+# Static example (comment DHCP and set):
+# Address=203.0.113.10/24
+# Gateway=203.0.113.1
+# DNS=1.1.1.1
+
+[DHCPv4]
+UseDNS=yes
+UseRoutes=yes
+
+[DHCPv6]
+UseDNS=yes

@@ -1,0 +1,37 @@
+#!/bin/bash
+# mkinitcpio install hook: wire dropbear logins to appsynergy-initrd-unlock.
+# Installed to /etc/initcpio/install/appsynergy-ssh-unlock on server targets.
+
+build() {
+  if [[ ! -s /etc/dropbear/root_key ]]; then
+    echo "appsynergy-ssh-unlock: no /etc/dropbear/root_key — skip (SSH unlock disarmed)"
+    return 0
+  fi
+
+  local shell_src=/usr/lib/appsynergy/initrd-unlock
+  if [[ ! -x $shell_src ]]; then
+    echo "appsynergy-ssh-unlock: missing $shell_src" >&2
+    return 1
+  fi
+
+  add_binary "$shell_src" "/bin/appsynergy-initrd-unlock"
+  # Present with systemd initrd; required for TPM-fallback passphrase.
+  if command -v systemd-tty-ask-password-agent >/dev/null 2>&1; then
+    add_binary systemd-tty-ask-password-agent
+  fi
+  if command -v systemd-ask-password >/dev/null 2>&1; then
+    add_binary systemd-ask-password
+  fi
+
+  # Force dropbear interactive sessions into the unlock agent (not a full shell).
+  echo 'root:x:0:0:root:/root:/bin/appsynergy-initrd-unlock' >"${BUILDROOT}/etc/passwd"
+  echo '/bin/appsynergy-initrd-unlock' >"${BUILDROOT}/etc/shells"
+  add_dir /root
+}
+
+help() {
+  cat <<EOF
+AppSynergy server: dropbear login runs LUKS passphrase agent after TPM fails.
+Requires mkinitcpio-dropbear + netconf and /etc/dropbear/root_key.
+EOF
+}

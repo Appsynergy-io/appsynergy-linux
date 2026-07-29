@@ -1,0 +1,38 @@
+#!/bin/sh
+# Initramfs login shell for dropbear break-glass unlock.
+# Unlock order (handled by systemd-cryptsetup / crypttab):
+#   1) TPM2 token (automatic, no SSH needed)
+#   2) This shell — operator enters LUKS passphrase over SSH if TPM fails
+#   3) Local console passphrase (IPMI / serial)
+#
+# Ported idea from appsynergy-linux break-glass: key-only remote unlock,
+# no passwords on the SSH channel itself (dropbear -s).
+set -eu
+
+echo "appsynergy-initrd-unlock: TPM unlock failed or timed out; enter LUKS passphrase."
+echo "appsynergy-initrd-unlock: verify dropbear host key fingerprint on serial/IPMI first."
+
+if command -v systemd-tty-ask-password-agent >/dev/null 2>&1; then
+  # Answers outstanding systemd-cryptsetup password asks in this initrd.
+  exec systemd-tty-ask-password-agent --query
+fi
+
+if command -v systemd-ask-password >/dev/null 2>&1; then
+  pw=$(systemd-ask-password --echo=no "LUKS passphrase:")
+  # Best-effort: reply to first ask socket if present
+  for f in /run/systemd/ask-password/ask.*; do
+    [ -e "$f" ] || continue
+    id=$(sed -n 's/^Id=//p' "$f" 2>/dev/null | head -1)
+    sock=$(sed -n 's/^Socket=//p' "$f" 2>/dev/null | head -1)
+    if [ -n "$sock" ] && [ -S "$sock" ]; then
+      printf '%s' "$pw" | /lib/systemd/systemd-reply-password 1 "$sock" 2>/dev/null \
+        || printf '%s\n' "$pw" >"$sock" 2>/dev/null || true
+    fi
+  done
+  unset pw
+  exit 0
+fi
+
+echo "appsynergy-initrd-unlock: no password agent in initrd; cannot unlock remotely."
+echo "Use console passphrase or rebuild initramfs with systemd hooks."
+exec /bin/sh

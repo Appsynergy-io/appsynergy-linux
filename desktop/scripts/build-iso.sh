@@ -4,15 +4,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROFILE="$ROOT/iso"
-OUT="$ROOT/out"
-WORK="$ROOT/work"
+OUT="${OUT:-$ROOT/out}"
+# Unique work dir by default so we never need to wipe a busy tree.
+WORK="${WORK:-$ROOT/work-$(date +%Y%m%d-%H%M%S)}"
 
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root: sudo $0"; exit 1; }
 command -v mkarchiso >/dev/null || { echo "install archiso"; exit 1; }
 
-echo "==> Build appsynergy-install (Rust)"
-INSTALLER_SRC="$ROOT/installer"
-INSTALLER_BIN="$PROFILE/airootfs/usr/local/bin/appsynergy-install"
 build_user="${SUDO_USER:-imma}"
 build_home=$(getent passwd "$build_user" | cut -d: -f6)
 # cargo as the real user (not root) so rustup/toolchain resolves
@@ -24,7 +22,15 @@ else
   echo "ERROR: cargo not found for $build_user — install rustup stable"
   exit 1
 fi
-sudo -u "$build_user" env HOME="$build_home" PATH="$build_home/.cargo/bin:/usr/bin:$PATH" \
+
+# runuser, not sudo -u: we are already root and sudo would re-prompt for a
+# password when the build is launched via pkexec rather than sudo.
+as_build_user() { runuser -u "$build_user" -- "$@"; }
+
+echo "==> Build appsynergy-install (Rust)"
+INSTALLER_SRC="$ROOT/installer"
+INSTALLER_BIN="$PROFILE/airootfs/usr/local/bin/appsynergy-install"
+as_build_user env HOME="$build_home" PATH="$build_home/.cargo/bin:/usr/bin:$PATH" \
   bash -c "cd '$INSTALLER_SRC' && $CARGO build --release"
 install -m755 "$INSTALLER_SRC/target/release/appsynergy-install" "$INSTALLER_BIN"
 file "$INSTALLER_BIN"
@@ -50,6 +56,17 @@ elif compgen -G "$SRC_PKG/linux-cachyos-igpu-[0-9]*.pkg.tar.zst" > /dev/null; th
 else
   echo "WARN: no local kernel packages (linux-appsynergy or linux-cachyos-igpu); use --kernel repo"
 fi
+# Host-max server kernels (skylake + tigerlake)
+for src in "$PKG_REPO" "$SRC_PKG"; do
+  for pat in linux-appsynergy-server-skylake linux-appsynergy-server-tigerlake; do
+    if compgen -G "$src/${pat}-[0-9]*.pkg.tar.zst" > /dev/null; then
+      cp -a "$src"/${pat}-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+    fi
+    if compgen -G "$src/${pat}-headers-*.pkg.tar.zst" > /dev/null; then
+      cp -a "$src"/${pat}-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+    fi
+  done
+done
 # Branding + mirrorlist (required offline after pacstrap)
 for src in "$PKG_REPO" /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-branding \
            /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-mirrorlist; do
@@ -62,6 +79,16 @@ for src in "$PKG_REPO" /home/imma/projects/appsynergy-packages/pkgbuilds/appsyne
 done
 # do not ship dbg into ISO
 rm -f "$DST_PKG"/*-dbg-*.pkg.tar.zst
+# Keep only the newest release of each package: build-iso.sh only ever copies in,
+# so stale versions accumulate and pacman -U on the target gets ambiguous input.
+for base in appsynergy-branding appsynergy-mirrorlist; do
+  mapfile -t old < <(ls -1v "$DST_PKG/$base"-*.pkg.tar.zst 2>/dev/null | head -n -1)
+  for f in "${old[@]:-}"; do
+    [[ -n "$f" ]] && { echo "  prune stale $(basename "$f")"; rm -f "$f"; }
+  done
+done
+# Stray artifacts that must never reach the image
+rm -f "$PROFILE/airootfs/usr/local/bin/appsynergy-install.bin"
 echo "Local kernel/branding pkgs:"
 ls -lh "$DST_PKG"/linux-*.pkg.tar.zst "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
 
@@ -87,14 +114,29 @@ if ! compgen -G "$DST_PKG"/appsynergy-branding-*.pkg.tar.zst > /dev/null; then
   exit 1
 fi
 
+# Pre-seeding a file that a repo package also owns makes pacstrap abort with
+# "exists in filesystem". Catch it here instead of 20s into the package install.
+echo "==> Check airootfs for package-owned files"
+conflict_found=0
+for pkg in "$PKG_REPO"/appsynergy-branding-*.pkg.tar.zst "$PKG_REPO"/appsynergy-mirrorlist-*.pkg.tar.zst; do
+  [[ -f "$pkg" ]] || continue
+  while read -r pf; do
+    [[ -e "$PROFILE/airootfs$pf" ]] || continue
+    echo "  CONFLICT: airootfs$pf is owned by $(basename "$pkg")"
+    conflict_found=1
+  done < <(tar tf "$pkg" 2>/dev/null | grep -v '/$' | grep -vE '^\.(PKGINFO|MTREE|BUILDINFO|INSTALL)' | sed 's|^|/|')
+done
+if (( conflict_found )); then
+  echo "ERROR: airootfs pre-seeds package-owned files — delete them from the profile"
+  echo "       (the package supplies them; see README 'no pre-seed of package-owned files')"
+  exit 1
+fi
+echo "  none"
+
 echo "==> Stage rescue CLIs (grok + claude) into live image"
 # Preserve real user home under sudo
-if [[ -n "${SUDO_USER:-}" ]]; then
-  sudo -u "$SUDO_USER" bash "$ROOT/scripts/stage-rescue-clis.sh" \
-    || bash "$ROOT/scripts/stage-rescue-clis.sh"
-else
-  bash "$ROOT/scripts/stage-rescue-clis.sh"
-fi
+as_build_user env HOME="$build_home" bash "$ROOT/scripts/stage-rescue-clis.sh" \
+  || bash "$ROOT/scripts/stage-rescue-clis.sh"
 # Fail build if rescue tools missing (USB is for recovery)
 if [[ ! -x "$PROFILE/airootfs/usr/local/bin/grok" || ! -x "$PROFILE/airootfs/usr/local/bin/claude" ]]; then
   echo "ERROR: grok and/or claude not staged into airootfs — aborting ISO build"
@@ -103,18 +145,46 @@ if [[ ! -x "$PROFILE/airootfs/usr/local/bin/grok" || ! -x "$PROFILE/airootfs/usr
 fi
 
 mkdir -p "$OUT"
-# clean work for repeatable builds (slow but safe)
-if [[ "${CLEAN:-1}" == "1" ]]; then
+# Only remove WORK if empty/unused and CLEAN=1; never kill processes.
+if [[ "${CLEAN:-0}" == "1" && -d $WORK ]]; then
+  if findmnt "$WORK" >/dev/null 2>&1; then
+    echo "ERROR: $WORK has mounts — pick a new WORK= path (do not force-clean)"
+    exit 1
+  fi
   rm -rf "$WORK"
 fi
 mkdir -p "$WORK"
 
+# Pre-flight: a previous aborted run can leave chroot mounts behind. Squashing a
+# tree with a live /proc under it packs /proc/kcore and never terminates.
+stale_mounts=$(findmnt -rno TARGET | grep "^$ROOT/work-" || true)
+if [[ -n "$stale_mounts" ]]; then
+  echo "ERROR: stale mounts from a previous build — unmount before building:"
+  echo "$stale_mounts"
+  exit 1
+fi
+
+# mkarchiso never unmounts the chroot before mksquashfs; the shim does it.
+export PATH="$ROOT/scripts/buildshims:$PATH"
+command -v mksquashfs | grep -q buildshims \
+  || { echo "ERROR: mksquashfs shim not on PATH"; exit 1; }
+
 echo "==> mkarchiso -v -w $WORK -o $OUT $PROFILE"
 mkarchiso -v -w "$WORK" -o "$OUT" "$PROFILE"
+
+# Post-build: mkarchiso exits 0 even when the image is unusable.
+ISO_PATH=$(ls -1t "$OUT"/*.iso 2>/dev/null | head -1 || true)
+[[ -n "$ISO_PATH" && -f "$ISO_PATH" ]] || { echo "ERROR: no ISO produced"; exit 1; }
+iso_bytes=$(stat -c %s "$ISO_PATH")
+(( iso_bytes > 800000000 )) || { echo "ERROR: ISO only $iso_bytes bytes — truncated"; exit 1; }
+echo "==> verify ISO structure (airootfs.sfs must be present and non-trivial)"
+xorriso -indev "$ISO_PATH" -lsl /appsynergy/x86_64/ 2>/dev/null | grep -i airootfs \
+  || { echo "ERROR: airootfs.sfs missing from ISO"; exit 1; }
 
 echo
 echo "ISO(s):"
 ls -lh "$OUT"/*.iso
+sha256sum "$ISO_PATH" | tee "$ISO_PATH.sha256"
 echo
 echo "Write example:"
 echo "  sudo dd if=$OUT/appsynergy-linux-*.iso of=/dev/sdX bs=4M status=progress oflag=sync"

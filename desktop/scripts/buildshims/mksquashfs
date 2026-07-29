@@ -1,0 +1,38 @@
+#!/usr/bin/bash
+# PATH shim: mkarchiso's _cleanup_pacstrap_dir never unmounts the chroot, so a
+# pacstrap-leaked /proc (or /sys, /dev) makes mksquashfs descend into the live
+# procfs and try to pack /proc/kcore (128 TiB) -> "Read failed because Invalid
+# argument" forever. Unmount anything under the source dir, then exec the real
+# mksquashfs.
+set -uo pipefail
+
+REAL=/usr/bin/mksquashfs
+SRC="${1:-}"
+
+if [[ -n "$SRC" && -d "$SRC" ]]; then
+  src_abs="$(readlink -f "$SRC")"
+  # Deepest-first: nested binds must release before their parents.
+  mapfile -t stale < <(findmnt -rno TARGET | grep "^${src_abs}/" | sort -r)
+  if (( ${#stale[@]} )); then
+    echo "[mksquashfs-shim] WARNING: ${#stale[@]} stale mount(s) under $src_abs — unmounting before squash" >&2
+    for m in "${stale[@]}"; do
+      echo "[mksquashfs-shim]   umount $m" >&2
+      umount -R "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || {
+        echo "[mksquashfs-shim] FATAL: cannot unmount $m — refusing to squash live filesystems" >&2
+        exit 1
+      }
+    done
+  fi
+  # Hard gate: never squash a tree that still has a live procfs under it.
+  if findmnt -rno TARGET | grep -q "^${src_abs}/"; then
+    echo "[mksquashfs-shim] FATAL: mounts remain under $src_abs — aborting" >&2
+    findmnt -rno TARGET,FSTYPE | grep "^${src_abs}/" >&2
+    exit 1
+  fi
+  if [[ -e "$src_abs/proc/kcore" ]]; then
+    echo "[mksquashfs-shim] FATAL: $src_abs/proc/kcore exists — procfs is live, aborting" >&2
+    exit 1
+  fi
+fi
+
+exec "$REAL" "$@"

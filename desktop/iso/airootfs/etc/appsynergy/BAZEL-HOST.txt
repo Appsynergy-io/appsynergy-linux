@@ -12,7 +12,7 @@ Installed via packages-target.txt
   bazelisk, jdk17-openjdk, gcc, binutils, openssl, pkgconf,
   clang, llvm, lld, compiler-rt, cmake, ninja, nasm, perl, mold,
   protobuf, nodejs, npm, pnpm, go, rustup, musl, kernel-headers-musl,
-  docker, fuse-overlayfs, zip, unzip, git, python, …
+  containerd, nerdctl, fuse-overlayfs, zip, unzip, git, python, …
 
 Restore after install (not in pacstrap)
   ~/bin/bazel              farm wrapper
