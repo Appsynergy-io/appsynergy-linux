@@ -122,6 +122,9 @@ fn try_main() -> Result<()> {
     step("initramfs", || rebuild_initramfs(&cfg))?;
     // TPM after initramfs so sd-encrypt + crypttab exist; rebuild again if enrolled.
     step("tpm-enroll", || enroll_tpm(&cfg))?;
+    // Must be the LAST initramfs write: kernel-package pacman hooks and TPM
+    // enrolment also rebuild it, and whichever runs last wins.
+    step("initramfs-verify", || verify_initrd_unlock(&cfg))?;
     step("services", || enable_services(&cfg))?;
     step("finalize", || finalize(&cfg))?;
 
@@ -1065,7 +1068,12 @@ fn configure_mkinitcpio(cfg: &Config) -> Result<()> {
     // Server: netconf + dropbear before sd-encrypt so SSH unlock works when TPM fails.
     // appsynergy-ssh-unlock sets root shell to the passphrase agent.
     let hooks = if cfg.variant.is_server() && cfg.ssh_pubkey.is_some() {
-        "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block netconf dropbear appsynergy-ssh-unlock sd-encrypt filesystems fsck)"
+        // netconf + dropbear are deliberately absent: they are busybox-init hooks
+        // that only define run_hook(), which a systemd initrd never calls — they
+        // shipped the files and started nothing. appsynergy-ssh-unlock installs
+        // real systemd units instead, and must stay AFTER `systemd` in this list
+        // so add_systemd_unit() is defined when it runs.
+        "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block appsynergy-ssh-unlock sd-encrypt filesystems fsck)"
     } else if cfg.variant.is_server() {
         "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)"
     } else {
@@ -1608,6 +1616,52 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
     println!("    rebuilding initramfs with tpm2 crypttab");
     cmd::arch_chroot(&cfg.mnt, "mkinitcpio -P")?;
     println!("    TPM2 token enrolled (PCRS={})", cfg.tpm_pcrs);
+    Ok(())
+}
+
+/// Rebuild the initramfs last and PROVE the remote-unlock pieces are inside it.
+///
+/// Several things rebuild the initramfs during an install — the explicit
+/// `mkinitcpio -P`, the kernel packages' pacman hooks, and TPM enrolment — and
+/// whichever runs last is what lands on the ESP. An image silently missing the
+/// unlock hook output boots to a passphrase prompt nobody can reach, so this
+/// checks the actual archive contents instead of trusting build order.
+fn verify_initrd_unlock(cfg: &Config) -> Result<()> {
+    if !cfg.variant.is_server() || cfg.ssh_pubkey.is_none() {
+        return Ok(());
+    }
+    println!("    rebuilding initramfs (last) and verifying remote unlock");
+    cmd::arch_chroot(&cfg.mnt, "mkinitcpio -P")?;
+
+    // Every file here is required for an SSH unlock to be possible:
+    //   root/.ssh/authorized_keys  - dropbear reads THIS, not /etc/dropbear/root_key
+    //   usr/bin/dropbear           - the daemon itself
+    //   sysinit.target.wants/...   - what actually starts it under a systemd initrd
+    let script = r#"set -u
+rc=0
+found=0
+for img in /boot/initramfs-linux-appsynergy-server-*.img; do
+  [ -f "$img" ] || continue
+  found=1
+  miss=""
+  for f in root/.ssh/authorized_keys usr/bin/dropbear \
+           etc/systemd/system/sysinit.target.wants/appsynergy-initrd-sshd.service; do
+    lsinitcpio "$img" 2>/dev/null | grep -qx "$f" || miss="$miss $f"
+  done
+  if [ -n "$miss" ]; then
+    echo "initramfs $img is missing:$miss"
+    rc=1
+  else
+    echo "  ok $(basename "$img"): remote unlock present"
+  fi
+done
+if [ "$found" -eq 0 ]; then echo "no server initramfs found"; rc=1; fi
+exit $rc
+"#;
+    cmd::arch_chroot(&cfg.mnt, script).context(
+        "initramfs lacks remote-unlock components — a headless host built this way \
+         could not be unlocked after reboot",
+    )?;
     Ok(())
 }
 

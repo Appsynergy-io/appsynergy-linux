@@ -34,9 +34,10 @@ bpf
 apparmor
 
 # --- LUKS remote unlock (TPM first; dropbear SSH if TPM fails) ---
+# mkinitcpio-dropbear / mkinitcpio-netconf are NOT used: they are busybox-init
+# hooks and never run under the systemd initrd this variant builds. The
+# appsynergy-ssh-unlock hook installs systemd units instead.
 dropbear
-mkinitcpio-dropbear
-mkinitcpio-netconf
 mkinitcpio-utils
 
 # --- console / ops ---
