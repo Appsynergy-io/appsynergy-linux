@@ -27,9 +27,13 @@ Packages are **unsigned** until `appsynergy-keyring` ships; use `SigLevel = Opti
 
 | Package | Role |
 |---------|------|
-| `linux-appsynergy` / headers | AppSynergy workstation kernel (iGPU-tuned; formerly `linux-cachyos-igpu`) |
+| `linux-appsynergy` / headers | Desktop workstation kernel (iGPU-tuned) |
+| `linux-appsynergy-server` / headers | OVH / tunnel server kernel (same series; `server.fragment`) |
 | `appsynergy-mirrorlist` | Registers the `[appsynergy]` repo |
 | `appsynergy-branding` | os-release + motd + shell policy |
+
+Server kernel build: `./scripts/build-linux-appsynergy-server.sh`  
+(fragment: `/home/imma/projects/kernel/configs/server.fragment`).
 
 Brave/Thorium stay as local USB payload or AUR for now (large / AUR).
 
