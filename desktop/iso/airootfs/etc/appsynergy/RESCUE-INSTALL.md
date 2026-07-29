@@ -1,176 +1,106 @@
-# AppSynergy Server — rescue install (step-by-step)
+# AppSynergy Server — rescue install (OVH / any non-Arch rescue)
 
-No ISO required. No Java. No process kills. You run each step after checking disks.
+No ISO. The payload ships an Arch bootstrap (pacstrap + arch-chroot, keyring and
+mirrors already baked in), so a Debian rescue needs no Arch tooling of its own.
 
-**Target:** dual NVMe, LUKS each disk, btrfs RAID1, skylake kernel, your baked SSH key.  
-**Metal:** server1 E3-1270 v6 — default boot entry skylake.
+**Target:** dual NVMe → LUKS per disk → btrfs RAID1, skylake kernel, initrd SSH unlock.
+**Metal:** server1 E3-1270 v6.
 
-## 0. From your laptop
-
-1. Build/stage payload: `./scripts/stage-rescue-payload.sh`
-2. Result: `out/appsynergy-server-rescue-YYYYMMDD.tar.zst`
-3. OVH: set boot to **rescue**, reboot (API or Manager)
-4. SSH: `ssh root@<public-ip>` (OVH rescue password)
-
-## 1. On rescue — identify disks
+## 0. Build the payload (on your workstation)
 
 ```bash
-lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL
-# expect something like nvme0n1 + nvme1n1 (both large). Adjust names if different.
+cd ~/projects/appsynergy-desktop
+sudo ./scripts/build-bootstrap.sh          # Arch bootstrap tarball → out/
+./scripts/stage-rescue-payload.sh          # FLAVOUR=tigerlake|all to change kernels
 ```
 
-**Stop if mounts look wrong.** Do not wipe the wrong disk.
+Produces `out/appsynergy-server-rescue-YYYYMMDD.tar.zst` (~272 MB, skylake only).
+Both scripts fail loudly rather than emit an unusable payload.
 
-## 2. Fetch payload
+## 1. Boot rescue and copy the payload
+
+OVH Manager/API: boot mode **rescue** → reboot → `ssh root@<ip>` (rescue password).
 
 ```bash
-# from your laptop (other terminal):
 scp out/appsynergy-server-rescue-*.tar.zst root@SERVER_IP:/root/
+```
 
-# on rescue:
+On the rescue host — `--long=31` is required, the payload is compressed with `--long`:
+
+```bash
 cd /root
-zstd -d appsynergy-server-rescue-*.tar.zst -c | tar -x
+zstd -dc --long=31 appsynergy-server-rescue-*.tar.zst | tar -x
 cd appsynergy-server-rescue
-sha256sum -c SHA256SUMS
-ls pkgs/
 ```
 
-## 3. Set LUKS passphrase (you choose)
+## 2. Preflight — read this before anything destructive
 
 ```bash
-printf 'YOUR_PASSPHRASE' > /tmp/luks-key
-chmod 600 /tmp/luks-key
+bash rescue-preflight.sh
 ```
 
-## 4. Partition both disks (EFI 1G + rest Linux)
+Reports firmware mode, CPU/RAM, TPM, **actual disk names and sizes**, existing
+filesystems, NICs, addressing, DNS, and rescue tooling. Exit 1 means a human
+decision is needed. Two things it catches that would otherwise strand you:
 
-Example for `/dev/nvme0n1` and `/dev/nvme1n1` — **edit names**:
+- **A `/32` address.** OVH sometimes assigns one with an off-subnet gateway. The
+  shipped `server-network/20-wired.network` uses `DHCP=yes` and will not
+  reproduce it — capture the static config first, or the host comes back with no
+  network and the SSH unlock never answers.
+- **Disk names.** Never assume `nvme0n1`/`nvme1n1`. Use what preflight prints.
+
+## 3. Install
 
 ```bash
-for d in /dev/nvme0n1 /dev/nvme1n1; do
-  sgdisk -Z "$d"
-  sgdisk -n1:0:+1G -t1:ef00 -c1:EFI "$d"
-  sgdisk -n2:0:0 -t2:8309 -c2:LUKS "$d"
-  partprobe "$d" || true
-done
+bash rescue-install.sh --disk /dev/nvme0n1,/dev/nvme1n1
 ```
 
-## 5. LUKS + open
+Optional: `--flavour tigerlake`, `--yes`, `--password-file /path/to/key`.
+Anything unrecognised is passed through to `appsynergy-install`.
+
+The script verifies payload checksums, unpacks the bootstrap, checks the tooling
+is present, wires `etc/` and `pkgs/` into the chroot, bind-mounts
+`/proc /sys /dev /run`, and runs the installer. It always unmounts on exit —
+including on failure — and warns rather than leaving a half-mounted tree.
+
+The installer then confirms interactively: **you type the exact disk paths** to
+proceed. It refuses outright if no SSH pubkey is available, before touching a
+single disk, because a headless host with no unlock key is unrecoverable.
+
+What it does: partition (1 G ESP + LUKS2 rest per disk) → btrfs RAID1 with
+`@ @home @var @log @cache @snapshots @srv` → pacstrap `packages-target-server.txt`
+→ local kernel/branding packages → fstab/crypttab → server overlay (sysctl, nft,
+sshd hardening, journald caps, watchdog, networkd) → dropbear initrd unlock →
+systemd-boot on both ESPs (mirrored) → TPM enrol when a TPM exists.
+
+## 4. Reboot into the installed system
+
+OVH: boot mode **hard disk** → reboot.
+
+First boot unlocks in this order: TPM (if present) → **initrd SSH** → console.
 
 ```bash
-cryptsetup luksFormat --type luks2 -q /dev/nvme0n1p2 /tmp/luks-key
-cryptsetup luksFormat --type luks2 -q /dev/nvme1n1p2 /tmp/luks-key
-cryptsetup open --key-file /tmp/luks-key /dev/nvme0n1p2 crypt0
-cryptsetup open --key-file /tmp/luks-key /dev/nvme1n1p2 crypt1
+ssh -i <your-key> root@SERVER_IP     # initrd dropbear: you get the unlock agent
+# enter the LUKS passphrase, session closes, host continues booting
+ssh -i <your-key> root@SERVER_IP     # normal login
+uname -r                              # expect *-appsynergy-server-skylake
 ```
 
-## 6. btrfs RAID1 + subvolumes
+## 5. Verify
 
 ```bash
-mkfs.btrfs -f -L appsynergy-server -d raid1 -m raid1 /dev/mapper/crypt0 /dev/mapper/crypt1
-mkfs.fat -F32 -n EFI0 /dev/nvme0n1p1
-mkfs.fat -F32 -n EFI1 /dev/nvme1n1p1
-
-mkdir -p /mnt
-mount /dev/mapper/crypt0 /mnt
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@var
-btrfs subvolume create /mnt/@log
-btrfs subvolume create /mnt/@cache
-btrfs subvolume create /mnt/@snapshots
-btrfs subvolume create /mnt/@srv
-umount /mnt
-
-mount -o subvol=@ /dev/mapper/crypt0 /mnt
-mkdir -p /mnt/{home,var,var/log,var/cache,snapshots,srv,boot,boot/efi}
-mount -o subvol=@home /dev/mapper/crypt0 /mnt/home
-mount -o subvol=@var /dev/mapper/crypt0 /mnt/var
-mount -o subvol=@log /dev/mapper/crypt0 /mnt/var/log
-mount -o subvol=@cache /dev/mapper/crypt0 /mnt/var/cache
-mount -o subvol=@snapshots /dev/mapper/crypt0 /mnt/snapshots
-mount -o subvol=@srv /dev/mapper/crypt0 /mnt/srv
-mount /dev/nvme0n1p1 /mnt/boot/efi
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT   # btrfs RAID1 over two crypt devices
+btrfs filesystem df /                  # RAID1 for data and metadata
+systemctl is-enabled sshd nftables systemd-networkd apparmor docker
+nft list ruleset | head                # fail-closed policy
+cat /etc/appsynergy/UNLOCK.txt         # unlock order for this host
 ```
-
-## 7. Bootstrap Arch root
-
-Rescue is usually Debian. Options:
-
-**A.** If rescue has `pacstrap` / arch-chroot (uncommon): use pacstrap with `etc/packages-target-server.txt`  
-**B.** From another Arch machine: pacstrap into a tarball, scp, extract to `/mnt`  
-**C.** On rescue: install `arch-install-scripts` if available, or use `debootstrap` is wrong — prefer Arch bootstrap tarball
-
-Minimal pattern once Arch tools exist:
-
-```bash
-# example only when pacstrap works and mirrors work:
-pacstrap -K /mnt $(grep -v '^#' etc/packages-target-server.txt | grep -v '^$')
-```
-
-Then local packages:
-
-```bash
-cp -a pkgs/*.pkg.tar.zst /mnt/root/
-arch-chroot /mnt pacman -U --noconfirm /root/linux-appsynergy-server-skylake-*.pkg.tar.zst \
-  /root/linux-appsynergy-server-skylake-headers-*.pkg.tar.zst \
-  /root/appsynergy-branding-*.pkg.tar.zst 2>/dev/null || true
-# optional second kernel:
-# arch-chroot /mnt pacman -U --noconfirm /root/linux-appsynergy-server-tigerlake-*.pkg.tar.zst ...
-```
-
-## 8. fstab / crypttab / key
-
-```bash
-genfstab -U /mnt >> /mnt/etc/fstab
-# crypttab both volumes; add TPM later if desired
-printf 'crypt0 UUID=%s none luks,discard\n' "$(blkid -s UUID -o value /dev/nvme0n1p2)" >> /mnt/etc/crypttab
-printf 'crypt1 UUID=%s none luks,discard\n' "$(blkid -s UUID -o value /dev/nvme1n1p2)" >> /mnt/etc/crypttab
-```
-
-## 9. Overlay configs + SSH key
-
-```bash
-cp etc/sysctl-server.conf /mnt/etc/sysctl.d/99-appsynergy-server.conf
-cp etc/modules-load-server.conf /mnt/etc/modules-load.d/appsynergy-server.conf
-cp etc/server-nftables.conf /mnt/etc/nftables.conf
-mkdir -p /mnt/root/.ssh /mnt/home/imma/.ssh
-cp etc/ssh-unlock.pub /mnt/root/.ssh/authorized_keys
-cp etc/ssh-unlock.pub /mnt/home/imma/.ssh/authorized_keys
-chmod 700 /mnt/root/.ssh /mnt/home/imma/.ssh
-chmod 600 /mnt/root/.ssh/authorized_keys /mnt/home/imma/.ssh/authorized_keys
-# copy server/* hooks as needed for dropbear unlock
-```
-
-## 10. Bootloader + users + services
-
-```bash
-arch-chroot /mnt bootctl install
-# write loader entries for vmlinuz-*-appsynergy-server-skylake
-# enable: sshd systemd-networkd systemd-resolved nftables apparmor containerd fstrim.timer
-# set hostname appsynergy-server, user imma, root password / same key
-arch-chroot /mnt mkinitcpio -P
-```
-
-Mirror ESP to second disk EFI partition when ready.
-
-## 11. Leave rescue
-
-```bash
-umount -R /mnt
-cryptsetup close crypt0
-cryptsetup close crypt1
-# API/Manager: boot mode hard disk → reboot
-```
-
-## 12. First boot
-
-- Unlock LUKS (console or SSH initrd if dropbear armed)
-- `ssh -i <yourkey> root@IP` or `imma@IP`
-- `uname -r` → expect `*-appsynergy-server-skylake`
 
 ## Notes
 
-- Live ISO + `appsynergy-install` is the automated path when you can boot the ISO.
-- This doc is the **rescue** path: you verify each step.
-- Payload pubkey is public key only; private key stays on your laptop.
+- The live ISO + `appsynergy-install` is the path when you can boot the ISO.
+  This is the path when you cannot — the normal case on rented metal.
+- The payload's `ssh-unlock.pub` is a **public** key; the private key never leaves
+  your workstation.
+- The manual step-by-step remains in git history (this file before 2026-07-29)
+  if you ever need to do this without the scripts.

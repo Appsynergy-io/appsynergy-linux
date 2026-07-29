@@ -44,9 +44,10 @@ impl DiskLayout {
     }
 }
 
-/// nvme0n1 / mmcblk0 style → p1/p2; sda → 1/2.
+/// nvme0n1 / mmcblk0 / loop0 style → p1/p2; sda → 1/2.
+/// `loop` included so loopback-device rehearsals of an install are faithful.
 pub fn is_nvme_style(disk: &str) -> bool {
-    disk.contains("nvme") || disk.contains("mmcblk")
+    disk.contains("nvme") || disk.contains("mmcblk") || disk.contains("loop")
 }
 
 pub fn partition_paths(disk: &Path) -> (PathBuf, PathBuf) {

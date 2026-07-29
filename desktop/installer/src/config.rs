@@ -365,18 +365,24 @@ fn resolve_disks(
     env: &HashMap<String, String>,
     variant: Variant,
 ) -> Result<Vec<PathBuf>> {
+    // Precedence: explicit CLI first, then the machine env file, then detection.
+    // The env file MUST NOT outrank an argument the operator typed — otherwise
+    // `--disk /dev/sda` silently targets whatever APPSYNERGY_DISKS names, which
+    // on unfamiliar hardware means wiping the wrong devices.
     if let Some(ref list) = cli.disks {
         return disk::parse_disks_list(list);
+    }
+    if let Some(ref one) = cli.disk {
+        return Ok(vec![one.clone()]);
     }
     if let Some(list) = env.get("APPSYNERGY_DISKS") {
         if !list.trim().is_empty() {
             return disk::parse_disks_list(list);
         }
     }
-    let one = cli
-        .disk
-        .clone()
-        .or_else(|| env.get("APPSYNERGY_DISK").map(PathBuf::from))
+    let one = env
+        .get("APPSYNERGY_DISK")
+        .map(PathBuf::from)
         .unwrap_or_else(|| {
             if variant.is_server() {
                 // Prefer dual NVMe names if both exist at load time

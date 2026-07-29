@@ -3,9 +3,14 @@
 # Installed to /etc/initcpio/install/appsynergy-ssh-unlock on server targets.
 
 build() {
+  # Fail closed. Returning 0 here builds an initramfs with no way in: a headless
+  # host reboots to a passphrase prompt that nobody can reach. Better to fail the
+  # mkinitcpio run loudly while the installer can still report it.
   if [[ ! -s /etc/dropbear/root_key ]]; then
-    echo "appsynergy-ssh-unlock: no /etc/dropbear/root_key — skip (SSH unlock disarmed)"
-    return 0
+    echo "appsynergy-ssh-unlock: /etc/dropbear/root_key missing or empty — refusing to" >&2
+    echo "  build an initramfs without remote unlock. Install the operator pubkey to" >&2
+    echo "  /etc/dropbear/root_key (installer: --ssh-pubkey) and rebuild." >&2
+    return 1
   fi
 
   local shell_src=/usr/lib/appsynergy/initrd-unlock
