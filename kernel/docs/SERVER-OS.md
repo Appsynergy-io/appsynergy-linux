@@ -37,7 +37,7 @@ WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/
 
 ### Userspace
 
-systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **containerd + nerdctl + cni-plugins** · iproute2 · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-nuc · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, containerd, fstrim
+systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **docker + docker-compose** · iproute2 · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-nuc · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, docker, fstrim
 
 ### NOT keep
 
