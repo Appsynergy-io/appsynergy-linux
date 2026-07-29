@@ -1,42 +1,131 @@
 #!/bin/bash
-# mkinitcpio install hook: wire dropbear logins to appsynergy-initrd-unlock.
-# Installed to /etc/initcpio/install/appsynergy-ssh-unlock on server targets.
+# mkinitcpio install hook: remote LUKS unlock over SSH in a *systemd* initrd.
+#
+# Why this exists: the stock mkinitcpio-dropbear / mkinitcpio-netconf hooks are
+# busybox-init hooks — they only define run_hook(), which a systemd initrd never
+# calls. With HOOKS=(... systemd ... sd-encrypt ...) they ship every file and
+# start nothing: no network, no dropbear, no remote unlock. This hook instead
+# installs real systemd units so networkd and dropbear actually run inside the
+# initrd, before cryptsetup asks for the passphrase.
+#
+# Ordering requirement: this hook must appear AFTER `systemd` in HOOKS so that
+# add_systemd_unit() is defined.
 
 build() {
-  # Fail closed. Returning 0 here builds an initramfs with no way in: a headless
-  # host reboots to a passphrase prompt that nobody can reach. Better to fail the
-  # mkinitcpio run loudly while the installer can still report it.
+  # Fail closed. A headless host with no unlock key is unrecoverable, so refuse
+  # to build an initramfs that pretends to offer remote unlock.
   if [[ ! -s /etc/dropbear/root_key ]]; then
-    echo "appsynergy-ssh-unlock: /etc/dropbear/root_key missing or empty — refusing to" >&2
-    echo "  build an initramfs without remote unlock. Install the operator pubkey to" >&2
-    echo "  /etc/dropbear/root_key (installer: --ssh-pubkey) and rebuild." >&2
+    echo "appsynergy-ssh-unlock: /etc/dropbear/root_key missing or empty — refusing" >&2
+    echo "  to build an initramfs without remote unlock. Install the operator pubkey" >&2
+    echo "  (installer: --ssh-pubkey) and rebuild." >&2
     return 1
   fi
 
-  local shell_src=/usr/lib/appsynergy/initrd-unlock
-  if [[ ! -x $shell_src ]]; then
-    echo "appsynergy-ssh-unlock: missing $shell_src" >&2
+  local dropbear_bin
+  dropbear_bin="$(command -v dropbear 2>/dev/null)" || dropbear_bin=""
+  if [[ -z "$dropbear_bin" ]]; then
+    echo "appsynergy-ssh-unlock: dropbear not installed — cannot provide remote unlock" >&2
     return 1
   fi
+  add_binary "$dropbear_bin" /usr/bin/dropbear
 
-  add_binary "$shell_src" "/bin/appsynergy-initrd-unlock"
-  # Present with systemd initrd; required for TPM-fallback passphrase.
-  if command -v systemd-tty-ask-password-agent >/dev/null 2>&1; then
-    add_binary systemd-tty-ask-password-agent
-  fi
-  if command -v systemd-ask-password >/dev/null 2>&1; then
-    add_binary systemd-ask-password
-  fi
+  # Host keys are generated once on the target and reused, so the fingerprint an
+  # operator verifies stays stable across initramfs rebuilds.
+  local kt key
+  for kt in ecdsa ed25519 rsa; do
+    key="/etc/dropbear/dropbear_${kt}_host_key"
+    if [[ ! -f "$key" ]] && command -v dropbearkey >/dev/null 2>&1; then
+      dropbearkey -t "$kt" -f "$key" >/dev/null 2>&1 || true
+    fi
+    [[ -f "$key" ]] && add_file "$key" "$key" 600
+  done
+  # dropbear authenticates against ~/.ssh/authorized_keys for the login user.
+  # /etc/dropbear/root_key is only a staging convention (the old
+  # mkinitcpio-dropbear hook copied it into place); shipping it there alone means
+  # dropbear never sees the key and every login fails "Permission denied".
+  add_file /etc/dropbear/root_key /etc/dropbear/root_key 600
+  add_dir /root/.ssh 700
+  install -Dm600 /etc/dropbear/root_key "${BUILDROOT}/root/.ssh/authorized_keys"
 
-  # Force dropbear interactive sessions into the unlock agent (not a full shell).
-  echo 'root:x:0:0:root:/root:/bin/appsynergy-initrd-unlock' >"${BUILDROOT}/etc/passwd"
-  echo '/bin/appsynergy-initrd-unlock' >"${BUILDROOT}/etc/shells"
+  # The unlock agent is root's login shell: an SSH session gets the passphrase
+  # prompt, never a shell on an unencrypted system.
+  local agent=/usr/lib/appsynergy/initrd-unlock
+  if [[ ! -x "$agent" ]]; then
+    echo "appsynergy-ssh-unlock: missing $agent" >&2
+    return 1
+  fi
+  add_binary "$agent" /bin/appsynergy-initrd-unlock
+  add_binary systemd-tty-ask-password-agent
+  add_binary systemd-ask-password
+  command -v systemd-reply-password >/dev/null 2>&1 && add_binary systemd-reply-password
+  [[ -x /usr/lib/systemd/systemd-reply-password ]] && \
+    add_file /usr/lib/systemd/systemd-reply-password /usr/lib/systemd/systemd-reply-password 755
+
+  printf 'root:x:0:0:root:/root:/bin/appsynergy-initrd-unlock\n' >"${BUILDROOT}/etc/passwd"
+  printf '/bin/appsynergy-initrd-unlock\n' >"${BUILDROOT}/etc/shells"
   add_dir /root
+  add_dir /dev/pts
+  add_dir /etc/dropbear
+  add_dir /run/dropbear
+
+  # --- network inside the initrd -------------------------------------------
+  # `ip=dhcp` is a busybox/dracut parameter and does nothing here, so bring the
+  # link up with systemd-networkd instead.
+  add_binary /usr/lib/systemd/systemd-networkd
+  add_systemd_unit systemd-networkd.service
+  add_systemd_unit systemd-networkd.socket
+
+  # networkd drops privileges to systemd-network; that account must exist inside
+  # the initrd or the unit fails to start.
+  local nw_uid nw_gid
+  nw_uid="$(id -u systemd-network 2>/dev/null || echo 977)"
+  nw_gid="$(id -g systemd-network 2>/dev/null || echo 977)"
+  printf 'systemd-network:x:%s:%s:systemd Network Management:/:/usr/bin/nologin\n' \
+    "$nw_uid" "$nw_gid" >>"${BUILDROOT}/etc/passwd"
+  printf 'systemd-network:x:%s:\n' "$nw_gid" >>"${BUILDROOT}/etc/group"
+
+  add_dir /etc/systemd/network
+  cat >"${BUILDROOT}/etc/systemd/network/10-initrd-wired.network" <<'NET'
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+NET
+
+  # --- units ----------------------------------------------------------------
+  add_dir /etc/systemd/system
+  add_dir /etc/systemd/system/sysinit.target.wants
+
+  cat >"${BUILDROOT}/etc/systemd/system/appsynergy-initrd-sshd.service" <<'UNIT'
+[Unit]
+Description=AppSynergy initrd SSH unlock (dropbear)
+Documentation=file:/etc/appsynergy/UNLOCK.txt
+DefaultDependencies=no
+Wants=systemd-networkd.service
+After=systemd-networkd.service
+Before=cryptsetup.target
+ConditionPathExists=/etc/dropbear/root_key
+
+[Service]
+Type=forking
+# -s no passwords, -j -k no forwarding, -E log to stderr, -R fallback hostkey
+ExecStart=/usr/bin/dropbear -E -s -j -k -p 22
+KillMode=process
+UNIT
+
+  ln -sf /etc/systemd/system/appsynergy-initrd-sshd.service \
+    "${BUILDROOT}/etc/systemd/system/sysinit.target.wants/appsynergy-initrd-sshd.service"
+  ln -sf /usr/lib/systemd/system/systemd-networkd.service \
+    "${BUILDROOT}/etc/systemd/system/sysinit.target.wants/systemd-networkd.service"
 }
 
 help() {
-  cat <<EOF
-AppSynergy server: dropbear login runs LUKS passphrase agent after TPM fails.
-Requires mkinitcpio-dropbear + netconf and /etc/dropbear/root_key.
-EOF
+  cat <<'HELP'
+Provides remote LUKS unlock over SSH inside a systemd initrd: systemd-networkd
+brings up the wired link, dropbear listens on port 22 (key-only), and root's
+login shell is the passphrase agent that answers systemd-cryptsetup's request.
+Requires /etc/dropbear/root_key; the build fails without it by design.
+HELP
 }
