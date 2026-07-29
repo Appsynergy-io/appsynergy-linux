@@ -24,7 +24,7 @@ Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 | sysctl FQ/BBR, journald caps, watchdog | RAUC, verity, UKI |
 | AppArmor | Plasma, NM, browsers |
 | WG / nft / namespaces / cgroup v2 / XDP-ready kernel | appsynergy-linux fabric apps |
-| containerd + nerdctl + cni-plugins | edgectl / custom orchestrator CLIs |
+| docker + docker-compose | edgectl / custom orchestrator CLIs |
 | same LUKS+btrfs layout as desktop | |
 
 ## Build ISO
@@ -132,6 +132,6 @@ for Chromium/Brave hybrid passkeys; user groups include `lp`/`rfkill`/`audio`/`i
 | Go migrator | `go` |
 | Cargo fallback | `rustup` |
 | musl release | `musl` `kernel-headers-musl` |
-| Containers | `containerd` `nerdctl` `cni-plugins` (not docker) |
+| Containers | `docker` `docker-compose` `docker-buildx` |
 
 **Not packaged on ISO:** NativeLink binary tree, farm `~/bin/bazel` wrapper — **restore from backup** after install.
