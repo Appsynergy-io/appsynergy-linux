@@ -1622,19 +1622,17 @@ fn enable_services(cfg: &Config) -> Result<()> {
             &cfg.mnt,
             r#"ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf || true"#,
         );
-        // Explicitly avoid desktop services / docker if packages ever leak in
+        // Keep desktop services off a headless host. docker is NOT listed here:
+        // it is part of the server stack now and is enabled above — disabling it
+        // here would silently undo that (it did, until this was fixed).
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl disable sddm NetworkManager bluetooth docker 2>/dev/null || true",
+            "systemctl disable sddm NetworkManager bluetooth 2>/dev/null || true",
         );
     } else {
         cmd::arch_chroot_ok(
             &cfg.mnt,
             "systemctl enable NetworkManager sddm sshd docker fstrim.timer bluetooth || true",
-        );
-        cmd::arch_chroot_ok(
-            &cfg.mnt,
-            "systemctl disable docker 2>/dev/null || true",
         );
         cmd::arch_chroot_ok(&cfg.mnt, "systemctl enable obex || true");
         cmd::arch_chroot_ok(
