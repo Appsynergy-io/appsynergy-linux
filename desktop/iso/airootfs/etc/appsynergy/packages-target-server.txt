@@ -1,0 +1,105 @@
+# Packages pacstrap'd for AppSynergy **server** variant (OVH / tunnels).
+# Keep list + OS docs: /home/imma/projects/kernel/docs/SERVER-OS.md
+# No desktop environment, no browsers, no Wi-Fi stack, no GPU media.
+# Kernels: linux-appsynergy-server-skylake + -tigerlake via --kernel=local (default).
+# NOT keep: agent/pets/console/RAUC (appsynergy-linux apps).
+
+# --- base / boot / disk ---
+base
+base-devel
+linux-firmware
+intel-ucode
+amd-ucode
+cryptsetup
+tpm2-tss
+tpm2-tools
+btrfs-progs
+dosfstools
+e2fsprogs
+efibootmgr
+mkinitcpio
+
+# --- network / tunnels / firewall ---
+openssh
+wireguard-tools
+nftables
+iproute2
+iputils
+bind
+# bpftool + libbpf (XDP / eBPF future)
+bpf
+# systemd-networkd is in systemd; enable at install time
+
+# --- MAC (needs linux-appsynergy-server-skylake/-nuc with CONFIG_SECURITY_APPARMOR) ---
+apparmor
+
+# --- LUKS remote unlock (TPM first; dropbear SSH if TPM fails) ---
+dropbear
+mkinitcpio-dropbear
+mkinitcpio-netconf
+mkinitcpio-utils
+
+# --- console / ops ---
+sudo
+which
+less
+man-db
+man-pages
+rsync
+tar
+zstd
+unzip
+zip
+wget
+curl
+jq
+bash-completion
+fish
+fwupd
+tmux
+btop
+vim
+nano
+lsof
+strace
+perf
+ripgrep
+htop
+
+# --- maintain + build Rust native binaries on the host ---
+git
+rustup
+clang
+llvm
+compiler-rt
+lld
+mold
+cmake
+ninja
+nasm
+perl
+pkgconf
+openssl
+gcc
+binutils
+glibc
+linux-api-headers
+musl
+kernel-headers-musl
+protobuf
+
+# --- containers (containerd + nerdctl; not docker) ---
+containerd
+nerdctl
+cni-plugins
+# runc pulled by containerd
+
+# --- intentionally NOT here ---
+# NetworkManager iwd wireless-regdb bluez*
+# plasma* sddm kwin breeze* dolphin konsole kate
+# mesa vulkan pipewire sof-firmware intel-media-driver
+# brave thorium code nodejs npm go jdk bazelisk qemu
+# ufw (nftables only)
+
+# --- AppSynergy identity (NOT pacstrap'd) ---
+# appsynergy-branding / appsynergy-mirrorlist installed post-pacstrap

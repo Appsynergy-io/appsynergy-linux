@@ -1,8 +1,8 @@
 [package]
 name = "appsynergy-install"
-version = "0.3.0"
+version = "0.6.0"
 edition = "2021"
-description = "AppSynergy Linux destructive full-disk installer (live USB)"
+description = "AppSynergy unified installer: desktop | server dual-NVMe btrfs RAID1"
 license = "MIT"
 publish = false
 

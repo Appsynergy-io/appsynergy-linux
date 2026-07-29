@@ -1,0 +1,8 @@
+# Copied into target as /etc/systemd/network/20-wired.network.initramfs
+# mkinitcpio-netconf (systemd branch) packs *.initramfs into early networkd.
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes

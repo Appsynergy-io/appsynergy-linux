@@ -114,8 +114,9 @@ ttf-meslo-nerd
 # --- general dev ---
 git
 github-cli
-docker
-docker-compose
+containerd
+nerdctl
+cni-plugins
 rustup
 go
 nodejs
@@ -168,7 +169,7 @@ protobuf
 # musl release path (scripts/release.sh, static agent)
 musl
 kernel-headers-musl
-# sandbox / FS helpers Bazel and docker use
+# sandbox / FS helpers Bazel and containers use
 fuse3
 fuse-overlayfs
 

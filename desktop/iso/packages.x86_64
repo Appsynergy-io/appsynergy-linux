@@ -74,3 +74,5 @@ hdparm
 # squash/live
 squashfs-tools
 systemd-resolvconf
+mkinitcpio-nfs-utils
+nbd
