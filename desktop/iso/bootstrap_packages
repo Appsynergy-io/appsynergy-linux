@@ -1,2 +1,17 @@
-arch-install-scripts
+# Arch tooling root for installing from a non-Arch rescue system (OVH = Debian).
+# Unpacked on the rescue host, chrooted into, then `appsynergy-install` runs from
+# inside it. Every binary the installer requires via cmd::need() must be here, or
+# the failure only surfaces after the operator has already committed to the wipe.
 base
+arch-install-scripts
+# installer hard requirements (cmd::need list in main.rs)
+gptfdisk
+cryptsetup
+dosfstools
+btrfs-progs
+efibootmgr
+util-linux
+systemd
+# LUKS enrollment + initramfs work performed inside the target chroot
+tpm2-tools
+mkinitcpio

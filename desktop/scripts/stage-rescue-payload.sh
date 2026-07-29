@@ -8,28 +8,43 @@ STAMP=$(date +%Y%m%d)
 OUT_DIR="$ROOT/out/appsynergy-server-rescue"
 TAR="$ROOT/out/appsynergy-server-rescue-${STAMP}.tar.zst"
 
-mkdir -p "$OUT_DIR"/{pkgs,etc,docs}
+mkdir -p "$OUT_DIR"/{pkgs,etc,docs,bootstrap}
+# FLAVOUR=all keeps both server kernels; default ships only what the target needs.
+# The payload is copied to the box over the network, so every extra 150MB is
+# transfer time during an outage.
+FLAVOUR="${FLAVOUR:-skylake}"
 # kernels
 shopt -s nullglob
-for f in \
-  "$REPO"/linux-appsynergy-server-skylake-*.pkg.tar.zst \
-  "$REPO"/linux-appsynergy-server-skylake-headers-*.pkg.tar.zst \
-  "$REPO"/linux-appsynergy-server-tigerlake-*.pkg.tar.zst \
-  "$REPO"/linux-appsynergy-server-tigerlake-headers-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-skylake-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-skylake-headers-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-tigerlake-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-tigerlake-headers-*.pkg.tar.zst \
-  "$REPO"/appsynergy-branding-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-branding-*.pkg.tar.zst \
-  "$REPO"/appsynergy-mirrorlist-*.pkg.tar.zst \
-  "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-mirrorlist-*.pkg.tar.zst
-do
+if [[ $FLAVOUR == all ]]; then
+  KFLAVOURS=(skylake tigerlake)
+else
+  KFLAVOURS=("$FLAVOUR")
+fi
+srcs=()
+for kf in "${KFLAVOURS[@]}"; do
+  srcs+=( "$REPO"/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
+  srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
+done
+srcs+=( "$REPO"/appsynergy-branding-*.pkg.tar.zst )
+srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-branding-*.pkg.tar.zst )
+srcs+=( "$REPO"/appsynergy-mirrorlist-*.pkg.tar.zst )
+srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-mirrorlist-*.pkg.tar.zst )
+for f in "${srcs[@]}"; do
   [[ -f $f ]] || continue
   [[ $f == *dbg* ]] && continue
   cp -a "$f" "$OUT_DIR/pkgs/"
 done
 shopt -u nullglob
+
+# Keep only the newest release of each package. This script only ever copies in,
+# so without a prune the payload accumulates every historical build and pacman -U
+# gets ambiguous input (the same defect that shipped branding 2-11 on the ISO).
+for base in appsynergy-branding appsynergy-mirrorlist; do
+  mapfile -t old < <(ls -1v "$OUT_DIR/pkgs/$base"-*.pkg.tar.zst 2>/dev/null | head -n -1)
+  for f in "${old[@]:-}"; do
+    [[ -n "$f" ]] && { echo "  prune stale $(basename "$f")"; rm -f "$f"; }
+  done
+done
 
 # configs from live profile
 AS="$ROOT/iso/airootfs/etc/appsynergy"
@@ -58,18 +73,52 @@ cp -a "$ROOT/docs/RESCUE-INSTALL.md" "$OUT_DIR/docs/" 2>/dev/null \
   || cp -a "$ROOT/iso/airootfs/etc/appsynergy/RESCUE-INSTALL.md" "$OUT_DIR/docs/" 2>/dev/null \
   || true
 
-# installer binary for reference (live-oriented; rescue steps are in the doc)
-if [[ -x $ROOT/iso/airootfs/usr/local/bin/appsynergy-install ]]; then
-  cp -a "$ROOT/iso/airootfs/usr/local/bin/appsynergy-install" "$OUT_DIR/"
-elif [[ -x $ROOT/installer/target/release/appsynergy-install ]]; then
+# Prefer the freshly built binary over whatever is staged in the ISO profile:
+# the profile copy can lag behind the source tree.
+if [[ -x $ROOT/installer/target/release/appsynergy-install ]]; then
   cp -a "$ROOT/installer/target/release/appsynergy-install" "$OUT_DIR/"
+elif [[ -x $ROOT/iso/airootfs/usr/local/bin/appsynergy-install ]]; then
+  cp -a "$ROOT/iso/airootfs/usr/local/bin/appsynergy-install" "$OUT_DIR/"
 fi
 
-# checksums (paths only; no secrets printed beyond pubkey file which is public)
+# Arch bootstrap: OVH rescue is Debian and has no pacstrap/arch-chroot. Without
+# this the install cannot proceed at all, so its absence is a hard failure.
+BOOTSTRAP=$(ls -1t "$ROOT"/out/*bootstrap*.tar.zst 2>/dev/null | head -1 || true)
+if [[ -n "$BOOTSTRAP" && -f "$BOOTSTRAP" ]]; then
+  cp -a "$BOOTSTRAP" "$OUT_DIR/bootstrap/"
+else
+  echo "ERROR: no bootstrap tarball in out/ — run scripts/build-bootstrap.sh first" >&2
+  exit 1
+fi
+
+# Operator-facing scripts travel with the payload.
+install -Dm755 "$ROOT/scripts/rescue-preflight.sh" "$OUT_DIR/rescue-preflight.sh"
+install -Dm755 "$ROOT/scripts/rescue-install.sh"   "$OUT_DIR/rescue-install.sh"
+
+# Gate: a payload missing any of these strands the operator mid-outage.
+fail=0
+[[ -s "$OUT_DIR/etc/ssh-unlock.pub" ]] || { echo "ERROR: etc/ssh-unlock.pub missing — headless host could not be unlocked" >&2; fail=1; }
+[[ -x "$OUT_DIR/appsynergy-install" ]] || { echo "ERROR: appsynergy-install missing" >&2; fail=1; }
+[[ -s "$OUT_DIR/etc/packages-target-server.txt" ]] || { echo "ERROR: packages-target-server.txt missing" >&2; fail=1; }
+compgen -G "$OUT_DIR/pkgs/linux-appsynergy-server-*.pkg.tar.zst" >/dev/null \
+  || { echo "ERROR: no server kernel package staged" >&2; fail=1; }
+(( fail == 0 )) || exit 1
+
+# Checksums (paths only; the only key here is a public one).
+# Build outside the payload dir, then move in: redirecting straight into
+# $OUT_DIR/SHA256SUMS creates the empty file *before* find walks the tree, so it
+# hashes itself and `sha256sum -c` then fails on every payload.
+SUMS_TMP="$(mktemp)"
 (
   cd "$OUT_DIR"
-  find . -type f -print0 | sort -z | xargs -0 sha256sum
-) >"$OUT_DIR/SHA256SUMS"
+  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum
+) >"$SUMS_TMP"
+mv "$SUMS_TMP" "$OUT_DIR/SHA256SUMS"
+chmod 644 "$OUT_DIR/SHA256SUMS"
+# Prove it verifies now, rather than discovering it on the rescue host.
+( cd "$OUT_DIR" && sha256sum -c --quiet SHA256SUMS ) \
+  || { echo "ERROR: payload checksums do not verify" >&2; exit 1; }
+echo "  SHA256SUMS verified ($(wc -l <"$OUT_DIR/SHA256SUMS") files)"
 
 mkdir -p "$ROOT/out"
 tar -C "$ROOT/out" -c appsynergy-server-rescue | zstd -T0 -19 -o "$TAR"

@@ -1,6 +1,7 @@
 /work/
-# run-iso-build.sh creates a timestamped work dir per build (root-owned, ~4G)
+# build scripts create timestamped work dirs (root-owned, several GB)
 /work-iso-*/
+/work-bootstrap-*/
 /out/
 /payload/
 *.iso

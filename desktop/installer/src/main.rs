@@ -49,6 +49,17 @@ fn try_main() -> Result<()> {
     }
 
     let cfg = Config::load(cli)?;
+    // Headless server: verify remote unlock can be armed BEFORE anything else.
+    // Most rented metal has no TPM and no console, so the initrd SSH key is the only
+    // way back in after reboot. Checked first so it cannot be masked by a later gate.
+    if cfg.variant == Variant::Server && cfg.ssh_pubkey.is_none() {
+        bail!(
+            "server install requires an SSH pubkey for initrd LUKS unlock.\n\
+             Pass --ssh-pubkey /path/to/key.pub (or bake /etc/appsynergy/ssh-unlock.pub).\n\
+             Refusing before touching disks: without it this host cannot be unlocked \
+             after reboot."
+        );
+    }
     for bin in [
         "sgdisk",
         "cryptsetup",
@@ -80,7 +91,6 @@ fn try_main() -> Result<()> {
     if !cfg.pkgs_file.is_file() {
         bail!("missing package list: {}", cfg.pkgs_file.display());
     }
-
     banner(&cfg);
     confirm(&cfg)?;
     warn_network();
@@ -134,7 +144,7 @@ fn try_main() -> Result<()> {
     if cfg.variant.is_server() {
         println!("  4. Edit /etc/systemd/network/*.network if DHCP is wrong");
         println!("  5. Unlock order: TPM → ssh root@ip (initrd) → console — /etc/appsynergy/UNLOCK.txt");
-        println!("  6. wg + nft: /etc/nftables.conf; containers: nerdctl/containerd");
+        println!("  6. wg + nft: /etc/nftables.conf; containers: docker + docker compose");
     }
     println!("============================================================");
     let closes: Vec<String> = cfg
@@ -1139,11 +1149,13 @@ fn install_ssh_keys(cfg: &Config) -> Result<()> {
 }
 
 fn create_users(cfg: &Config) -> Result<()> {
+    // `docker` group: membership is equivalent to root (the socket will run any
+    // container as uid 0 with host mounts). Included deliberately so the operator
+    // can use docker/compose without sudo; drop it if that tradeoff is unwanted.
     let groups = if cfg.variant.is_server() {
-        "wheel,systemd-journal,tss"
+        "wheel,systemd-journal,tss,docker"
     } else {
-        // no docker group — containerd/nerdctl (rootful via sudo, or rootless later)
-        "wheel,audio,input,video,lp,rfkill,storage,network,tss,uucp"
+        "wheel,audio,input,video,lp,rfkill,storage,network,tss,uucp,docker"
     };
     let pam_wallet = if cfg.variant.is_server() {
         ""
@@ -1603,7 +1615,7 @@ fn enable_services(cfg: &Config) -> Result<()> {
     if cfg.variant.is_server() {
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl enable sshd systemd-networkd systemd-resolved nftables apparmor containerd fstrim.timer || true",
+            "systemctl enable sshd systemd-networkd systemd-resolved nftables apparmor docker fstrim.timer || true",
         );
         // Point /etc/resolv.conf at resolved stub when possible
         cmd::arch_chroot_ok(
@@ -1618,7 +1630,7 @@ fn enable_services(cfg: &Config) -> Result<()> {
     } else {
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl enable NetworkManager sddm sshd containerd fstrim.timer bluetooth || true",
+            "systemctl enable NetworkManager sddm sshd docker fstrim.timer bluetooth || true",
         );
         cmd::arch_chroot_ok(
             &cfg.mnt,
@@ -1734,23 +1746,25 @@ fn apply_server_overlay(cfg: &Config) -> Result<()> {
         )?;
     }
 
-    // dropbear initrd unlock key (root + user authorized_keys already in install_ssh_keys)
-    if let Some(ref key) = cfg.ssh_pubkey {
-        fs::create_dir_all(cfg.mnt.join("etc/dropbear"))?;
-        fs::write(cfg.mnt.join("etc/dropbear/root_key"), key)?;
-        let _ = cmd::run(
-            "server-overlay",
-            "chmod",
-            &["600", &cfg.mnt.join("etc/dropbear/root_key").to_string_lossy()],
+    // dropbear initrd unlock key (root + user authorized_keys already in install_ssh_keys).
+    // FAIL CLOSED: a headless server has no console. Without this key the box boots to
+    // a passphrase prompt nobody can reach, and the old fallback additionally turned on
+    // PermitRootLogin+PasswordAuthentication on a public host. Refuse instead.
+    let Some(ref key) = cfg.ssh_pubkey else {
+        bail!(
+            "server install requires --ssh-pubkey: without it the initrd SSH unlock is \
+             disarmed and a headless host cannot be unlocked after reboot (no console, \
+             no TPM on most rented metal). Re-run with --ssh-pubkey /path/to/key.pub"
         );
-        println!("    dropbear root_key armed for initrd SSH unlock");
-    } else {
-        eprintln!("WARN: no baked SSH pubkey — initrd SSH unlock disarmed; root password login may still work until you harden");
-        fs::write(
-            cfg.mnt.join("etc/ssh/sshd_config.d/10-appsynergy.conf"),
-            "PermitRootLogin yes\nPasswordAuthentication yes\nPubkeyAuthentication yes\nX11Forwarding no\n# Re-apply key-only after: install pubkey + set PasswordAuthentication no\n",
-        )?;
-    }
+    };
+    fs::create_dir_all(cfg.mnt.join("etc/dropbear"))?;
+    fs::write(cfg.mnt.join("etc/dropbear/root_key"), key)?;
+    let _ = cmd::run(
+        "server-overlay",
+        "chmod",
+        &["600", &cfg.mnt.join("etc/dropbear/root_key").to_string_lossy()],
+    );
+    println!("    dropbear root_key armed for initrd SSH unlock");
 
     // Order: modules-load before systemd-sysctl so conntrack keys exist
     let drop = cfg

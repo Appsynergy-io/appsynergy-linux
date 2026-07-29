@@ -114,9 +114,9 @@ ttf-meslo-nerd
 # --- general dev ---
 git
 github-cli
-containerd
-nerdctl
-cni-plugins
+docker
+docker-compose
+docker-buildx
 rustup
 go
 nodejs

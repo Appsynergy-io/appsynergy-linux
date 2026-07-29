@@ -88,11 +88,11 @@ musl
 kernel-headers-musl
 protobuf
 
-# --- containers (containerd + nerdctl; not docker) ---
-containerd
-nerdctl
-cni-plugins
-# runc pulled by containerd
+# --- containers (docker + compose) ---
+docker
+docker-compose
+docker-buildx
+# containerd + runc are pulled in by docker
 
 # --- intentionally NOT here ---
 # NetworkManager iwd wireless-regdb bluez*
