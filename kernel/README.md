@@ -1,17 +1,33 @@
-# Custom Linux kernel — Intel desktop, Rust-first
+# Custom Linux kernel — AppSynergy desktop + server
 
-Optimized kernel design for **i9-12900K + ASUS Z690 + RTX 4090** on CachyOS, aimed at cargo/rustc throughput and KDE latency.
+CachyOS-based, **same version line** (e.g. 7.1.x):
+
+| Variant | Package | Role |
+|---------|---------|------|
+| **Desktop** | `linux-appsynergy` | i9-12900K / Z690, Rust compile + Plasma |
+| **Server skylake** | `linux-appsynergy-server-skylake` | E3-1270 v6 max: skylake, igb, WG/nft/XDP |
+| **Server tigerlake** | `linux-appsynergy-server-tigerlake` | i7-1185G7 max: tigerlake, igc, WG/nft/XDP |
+
+Installer server mode installs **both** host kernels and defaults boot by CPU.  
+Server OS keep list: **[docs/SERVER-OS.md](docs/SERVER-OS.md)**.
 
 ## Docs
 
 | Path | Content |
 |------|---------|
+| **[docs/SERVER-OS.md](docs/SERVER-OS.md)** | **Server OS variant + keep list** (install, services, NOT-keep) |
+| **[docs/SERVER-KERNEL.md](docs/SERVER-KERNEL.md)** | `linux-appsynergy-server` + `server.fragment` |
+| **[docs/SERVER-SECURITY.md](docs/SERVER-SECURITY.md)** | TPM / SSH unlock + hardening files |
 | **[docs/BIOS-POST-UPDATE-2026-07-12.md](docs/BIOS-POST-UPDATE-2026-07-12.md)** | BIOS 4505, RAM **5600** stable, PCIe Gen4×8 |
 | [docs/BIOS-CHECKLIST.md](docs/BIOS-CHECKLIST.md) | BIOS settings + PCIe deep dive |
 | **[docs/VERIFICATION.md](docs/VERIFICATION.md)** | Baseline benches, strip candidates |
-| [docs/OPTIMIZED-KERNEL.md](docs/OPTIMIZED-KERNEL.md) | Custom kernel plan |
-| [configs/rustopt.fragment](configs/rustopt.fragment) | Kconfig fragment (`i915=m`) |
-| [configs/igpu.fragment](configs/igpu.fragment) | iGPU-only variant (`i915=y`, post-NVIDIA) |
+| [docs/OPTIMIZED-KERNEL.md](docs/OPTIMIZED-KERNEL.md) | Desktop custom kernel plan |
+| [configs/rustopt.fragment](configs/rustopt.fragment) | Desktop Kconfig (`i915=m`) |
+| [configs/igpu.fragment](configs/igpu.fragment) | Desktop iGPU (`i915=y`) |
+| [configs/server-skylake.fragment](configs/server-skylake.fragment) | OVH E3-1270 v6 max Kconfig |
+| [configs/server-tigerlake.fragment](configs/server-tigerlake.fragment) | NUC i7-1185G7 max Kconfig |
+| [configs/server.fragment](configs/server.fragment) | Legacy portable (do not ship) |
+| [scripts/sysctl-server.conf](scripts/sysctl-server.conf) | Server sysctl (FQ/BBR/forwarding) |
 
 ## Baseline (recorded 2026-07-12)
 
@@ -29,7 +45,9 @@ Optimized kernel design for **i9-12900K + ASUS Z690 + RTX 4090** on CachyOS, aim
 |--------|---------|
 | `scripts/bench-rust.fish` | Timed cargo + perf (A/B comparable) |
 | `scripts/pgo-train-rust.fish` | Multi-project cargo load for AutoFDO |
-| `scripts/sysctl-rustopt.conf` | `/etc/sysctl.d/` snippet |
+| `scripts/sysctl-rustopt.conf` | Desktop `/etc/sysctl.d/` snippet |
+| `scripts/sysctl-server.conf` | Server tunnel/WG sysctl |
+| `scripts/modules-load-server.conf` | `nf_conntrack` preload for sysctl |
 
 ## Order of work
 
