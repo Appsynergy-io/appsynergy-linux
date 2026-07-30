@@ -22,7 +22,7 @@ for this role — **keep list only**, no appliance applications.
 
 | Keep | On target |
 |------|-----------|
-| Fail-closed **nftables** | `/etc/nftables.conf` (SSH :22, lo, established, DHCP, ICMP/ND) |
+| Fail-closed **nftables** | `/etc/nftables.conf` (SSH :22, lo, established, DHCP, ICMP/ND; `forward` drops all but DNATed uplink→`v-wg*` and `v-wg*`↔`v-wg*` — customer egress is NATed inside each WG container) |
 | **AppArmor** (MAC) | kernel LSM + `apparmor` package; `systemctl enable apparmor`; stock profiles |
 | **Key-only SSH** | `sshd_config.d/10-appsynergy.conf` if `--ssh-pubkey` |
 | **TPM → SSH unlock → console** | crypttab TPM; initrd dropbear; passphrase always |
@@ -37,7 +37,7 @@ WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/
 
 ### Userspace
 
-systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **docker + docker-compose** · iproute2 · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-nuc · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, docker, fstrim
+systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **docker + docker-compose** · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-nuc · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, docker, fstrim
 
 ### NOT keep
 
