@@ -25,6 +25,9 @@ wireguard-tools
 nftables
 iproute2
 iputils
+# Datapath diagnosis. Without it, a "the tunnel handshakes and passes
+# nothing" fault is guessed at from nft counters instead of read off the wire.
+tcpdump
 bind
 # bpftool + libbpf (XDP / eBPF future)
 bpf
