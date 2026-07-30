@@ -43,6 +43,20 @@ apparmor
 dropbear
 mkinitcpio-utils
 
+# --- cutover + control-plane database ---
+# sqlite3 is the CLI ops/cutover-identity.sh drives: naming the routing_servers
+# row, seeding net_policy_bindings and correcting infra_dns_records, plus the
+# runbook's `pragma integrity_check` read-back. It is NOT pulled in by base or
+# base-devel, and the appliance's mirrorlist points at a host that is itself
+# being migrated — so a missing sqlite3 cannot be fixed with pacman inside the
+# window. It is a 2 MB package standing between a working cutover and a dead
+# one.
+sqlite
+# Verify-on-pull (ops/deploy-verify.sh, HM-6): every first-party image carries
+# a cosign signature in the registry, which is worth nothing on a host that
+# cannot check it.
+cosign
+
 # --- console / ops ---
 sudo
 which
