@@ -184,7 +184,21 @@ CONFIG_IPV6_GRE=m
 CONFIG_NET_IPIP=m
 CONFIG_NET_IPGRE_DEMUX=m
 CONFIG_BRIDGE=m
-# CONFIG_BRIDGE_NETFILTER is not set
+# Bridge netfilter is required, not optional, since this host runs k3s.
+# Two things break without it, and both fail silently:
+#   * NETFILTER_XT_MATCH_PHYSDEV `depends on BRIDGE_NETFILTER`, so switching
+#     this off takes the physdev match with it. k3s's kube-router controller
+#     needs physdev and aborts every sync ("Extension physdev revision 0 not
+#     supported"), which means the apiserver accepts a NetworkPolicy, lists it,
+#     and programs nothing. Measured on the appliance 2026-08-02: with five
+#     default-deny policies applied, a workload Pod still reached :6443/:10250.
+#   * Bridged frames never reach conntrack, so a pod->Service reply is never
+#     un-DNATed and the client discards it. appsynergy-rs works around that
+#     with kube-proxy `masquerade-all=true`, at the cost of the client's real
+#     address on every cluster service.
+# server-tigerlake.fragment already sets this; the two metals had diverged.
+CONFIG_BRIDGE_NETFILTER=m
+CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m
 
 CONFIG_BPF=y
 CONFIG_BPF_SYSCALL=y
