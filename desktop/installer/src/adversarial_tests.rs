@@ -51,6 +51,59 @@ fn server_kernel_pkg_prefix_does_not_cross_match() {
 }
 
 #[test]
+fn kernel_select_is_variant_user_choice_cpu_auto() {
+    // Operator picks variant; CPU only chooses which *package* within that variant.
+    use crate::detect::{select_kernel_for_variant, ServerKernelFlavor};
+    let desk = select_kernel_for_variant(false, "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz");
+    assert_eq!(desk.pkg_prefixes, ["linux-appsynergy"]);
+    let coffee = select_kernel_for_variant(true, "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz");
+    assert_eq!(coffee.server_flavor, Some(ServerKernelFlavor::Skylake));
+    assert_eq!(coffee.pkg_prefixes.len(), 1);
+    assert_eq!(coffee.pkg_prefixes[0], "linux-appsynergy-server-skylake");
+    let nuc = select_kernel_for_variant(true, "11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz");
+    assert_eq!(nuc.pkg_prefixes, ["linux-appsynergy-server-tigerlake"]);
+}
+
+#[test]
+fn install_local_kernel_no_longer_installs_both_server_flavors() {
+    // Contract: server path installs one CPU-mapped package, not skylake+tigerlake.
+    let src = include_str!("main.rs");
+    assert!(src.contains("CPU-mapped host-max only"));
+    assert!(!src.contains("Server ships **both** host-max kernels"));
+}
+
+#[test]
+fn k3s_server_only_no_docker_stack() {
+    let src = include_str!("main.rs");
+    assert!(src.contains("fn install_k3s"));
+    assert!(src.contains("skip k3s (desktop"));
+    assert!(
+        src.contains("apparmor k3s fstrim") || src.contains("apparmor k3s "),
+        "server must enable k3s"
+    );
+    assert!(
+        !src.contains("enable NetworkManager sddm sshd docker")
+            && !src.contains("enable NetworkManager sddm sshd k3s"),
+        "desktop must not enable docker or k3s"
+    );
+    let desk = include_str!("../../iso/airootfs/etc/appsynergy/packages-target.txt");
+    let srv = include_str!("../../iso/airootfs/etc/appsynergy/packages-target-server.txt");
+    for list in [desk, srv] {
+        assert!(
+            !list.lines().any(|l| {
+                let t = l.trim();
+                t == "docker"
+                    || t == "docker-compose"
+                    || t == "docker-buildx"
+                    || t == "containerd"
+                    || t == "nerdctl"
+            }),
+            "package lists must not install docker/containerd/nerdctl"
+        );
+    }
+}
+
+#[test]
 fn install_problems_password_file_strips_newline_not_content() {
     // #3: batch keyfile with trailing newline
     let p = disk::strip_password_newline(b"hunter2\n".to_vec()).unwrap();

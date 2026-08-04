@@ -180,7 +180,30 @@ CONFIG_IPV6_GRE=m
 CONFIG_NET_IPIP=m
 CONFIG_NET_IPGRE_DEMUX=m
 CONFIG_BRIDGE=m
-# CONFIG_BRIDGE_NETFILTER is not set
+# Built in, not a module: the k3s site's LAN perimeter is a host nftables
+# ruleset on the `forward` hook (nuc-k3s network/netguard.nft, rendered from
+# apps/exposure-lab.toml). Multus puts each public workload's veth on br-pub
+# with the uplink enslaved, so LAN → Pod traffic is *bridged*; without
+# bridge netfilter those frames never reach a netfilter hook and the ruleset
+# loads clean while filtering nothing. Measured 2026-08-02: with this unset,
+# .120/.199/.251/.252 answer on every port their images bind.
+#
+# It also removes the reason prod needs `masquerade-all=true` in kube-proxy —
+# a Service VIP reply that is bridged peer-to-peer is never un-DNATed and the
+# client discards it. Keep masquerade-all until that is re-measured here.
+#
+# Requested as =y; Kconfig resolves it to =m because CONFIG_BRIDGE=m above and
+# a symbol cannot be built in when its dependency is modular. That is fine, but
+# it means the perimeter now depends on the module being loaded: nftables will
+# accept the ruleset whether or not br_netfilter is present, and silently
+# filter nothing until it is. scripts/modules-load-server.conf loads only
+# nf_conntrack and nf_tables, so nuc-k3s ships its own modules-load.d and
+# sysctl.d drop-ins and install-netguard.sh refuses without them.
+# Set CONFIG_BRIDGE=y as well if you ever want this genuinely built in.
+CONFIG_BRIDGE_NETFILTER=y
+# Conntrack for bridged frames — `ct state established,related accept` in the
+# guard is meaningless without it.
+CONFIG_NF_CONNTRACK_BRIDGE=m
 
 CONFIG_BPF=y
 CONFIG_BPF_SYSCALL=y

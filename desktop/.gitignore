@@ -12,4 +12,9 @@ iso/airootfs/opt/appsynergy/pkgs/*.sig
 iso/airootfs/usr/local/bin/grok
 iso/airootfs/usr/local/bin/agent
 iso/airootfs/usr/local/bin/claude
+# staged k3s binary (scripts/stage-k3s.sh at ISO build)
+iso/airootfs/opt/appsynergy/k3s/k3s
+iso/airootfs/opt/appsynergy/k3s/VERSION
 brand-review/candidates-all/
+# k3s service env (0600, holds runtime secrets — never commit)
+iso/airootfs/opt/appsynergy/k3s/k3s.service.env

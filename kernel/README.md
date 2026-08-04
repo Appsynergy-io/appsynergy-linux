@@ -8,7 +8,7 @@ CachyOS-based, **same version line** (e.g. 7.1.x):
 | **Server skylake** | `linux-appsynergy-server-skylake` | E3-1270 v6 max: skylake, igb, WG/nft/XDP |
 | **Server tigerlake** | `linux-appsynergy-server-tigerlake` | i7-1185G7 max: tigerlake, igc, WG/nft/XDP |
 
-Installer server mode installs **both** host kernels and defaults boot by CPU.  
+Installer: you pick **desktop|server**; kernel package is **CPU-auto** (server: skylake **or** tigerlake only, not both).  
 Server OS keep list: **[docs/SERVER-OS.md](docs/SERVER-OS.md)**.
 
 ## Docs

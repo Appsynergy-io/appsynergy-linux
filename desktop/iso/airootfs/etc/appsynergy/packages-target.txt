@@ -114,9 +114,7 @@ ttf-meslo-nerd
 # --- general dev ---
 git
 github-cli
-docker
-docker-compose
-docker-buildx
+# no container runtime on desktop (no docker / k3s / containerd / nerdctl)
 rustup
 go
 nodejs

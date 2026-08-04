@@ -49,11 +49,11 @@ Post-build: config must have `# CONFIG_X86_NATIVE_CPU is not set`. Script refuse
 
 ## Installer
 
-`appsynergy-install --variant server --kernel local`:
+`appsynergy-install --variant server --kernel local` (variant is **your** choice):
 
-1. Installs **both** `linux-appsynergy-server-skylake` and `-nuc` (+ headers) when present.
-2. Writes systemd-boot entries `appsynergy-skylake.conf` + `appsynergy-tigerlake.conf`.
-3. Default = CPU detect: E3-1270/Xeon v6 → ovh; 1185G7/11th gen → nuc.
+1. CPU auto-maps **one** package (+ headers): Skylake/Kaby/Coffee/Comet/Xeon E3 v5–v6 → `…-server-skylake`; Tiger Lake / 11th gen / 1185G7 → `…-server-tigerlake`.
+2. Writes a single matching systemd-boot entry (e.g. `appsynergy-skylake.conf`).
+3. Does **not** install both host-max kernels. Unmapped CPUs (e.g. Alder Lake) fail with a clear error unless `--kernel repo`.
 
 ## Boot cmdline
 

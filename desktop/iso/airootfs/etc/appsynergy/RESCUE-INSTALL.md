@@ -91,7 +91,7 @@ uname -r                              # expect *-appsynergy-server-skylake
 ```bash
 lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT   # btrfs RAID1 over two crypt devices
 btrfs filesystem df /                  # RAID1 for data and metadata
-systemctl is-enabled sshd nftables systemd-networkd apparmor docker
+systemctl is-enabled sshd nftables systemd-networkd apparmor k3s
 nft list ruleset | head                # fail-closed policy
 cat /etc/appsynergy/UNLOCK.txt         # unlock order for this host
 ```

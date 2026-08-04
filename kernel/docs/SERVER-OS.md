@@ -37,11 +37,11 @@ WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/
 
 ### Userspace
 
-systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **docker + docker-compose** · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-nuc · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, docker, fstrim
+systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **k3s** (staged binary + config; embeds its runtime) · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-tigerlake · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, **k3s**, fstrim
 
 ### NOT keep
 
-agent · pets/nspawn · console SPA · RAUC · verity · UKI · agent AppArmor profile · fabric CLI · **edgectl** · Plasma/SDDM/browsers/NM/bluez/mesa · **docker/moby** · MODULE_SIG_FORCE
+agent · pets/nspawn · console SPA · RAUC · verity · UKI · agent AppArmor profile · fabric CLI · **edgectl** · Plasma/SDDM/browsers/NM/bluez/mesa · **docker/moby** · **containerd** · **nerdctl** · MODULE_SIG_FORCE
 
 ## Identity and disk
 

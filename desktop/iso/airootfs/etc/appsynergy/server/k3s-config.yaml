@@ -1,0 +1,34 @@
+# k3s server configuration (plan R-b).
+#
+# masquerade-all is not a preference. This kernel is built without
+# CONFIG_BRIDGE_NETFILTER, so bridged frames never traverse conntrack. A pod
+# reaching another pod through a service IP is DNATed correctly on the way in
+# (the request is routed via cni0, so PREROUTING applies) but the reply is
+# bridged straight back peer-to-peer, is never un-DNATed, and arrives from the
+# endpoint address instead of the service address - so the client discards it.
+# The symptom is a service IP that works perfectly from the host and not at all
+# from a pod, with the DNAT counter incrementing the whole time.
+#
+# Masquerading service traffic forces the reply to return via the host, where
+# conntrack can undo the translation. The cost is that cluster services see the
+# node address rather than the client pod's - acceptable here, because customer
+# and infrastructure enforcement lives on the public interfaces, not on cluster
+# service IPs. The proper fix is CONFIG_BRIDGE_NETFILTER in the appsynergy-linux
+# kernel; this stands until that lands.
+kube-proxy-arg:
+  - "masquerade-all=true"
+
+# The WireGuard agents forward customer traffic, so their Pods set
+# net.ipv4.ip_forward. The kubelet classifies that sysctl as unsafe — it is
+# namespaced, but it changes what the Pod does to traffic that is not its own —
+# so it has to be allowed by name rather than by a blanket opt-out. Nothing
+# else on this node is permitted an unsafe sysctl.
+kubelet-arg:
+  - "allowed-unsafe-sysctls=net.ipv4.ip_forward"
+
+disable:
+  - traefik
+  - servicelb
+
+secrets-encryption: true
+write-kubeconfig-mode: "0600"

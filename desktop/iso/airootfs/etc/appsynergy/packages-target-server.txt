@@ -84,6 +84,17 @@ perf
 ripgrep
 htop
 
+# Dependency of linux-appsynergy-server-*-headers, listed here on purpose.
+# The kernel packages are installed with `pacman -U` from local files, and
+# pahole is the one thing that transaction has to fetch from a repo. pacman 7
+# sandboxes downloads with Landlock + the `alpm` user, and OVH's rescue kernel
+# has no Landlock (`/sys/kernel/security/lsm` = `capability` only) — so that
+# fetch dies with "restricting filesystem access failed" and takes the install
+# with it. pacstrap runs under the Arch bootstrap's own pacman.conf, which
+# permits the download, so pulling pahole in here leaves the later `pacman -U`
+# with nothing to retrieve and no sandbox to set up.
+pahole
+
 # --- maintain + build Rust native binaries on the host ---
 git
 rustup
@@ -106,13 +117,12 @@ musl
 kernel-headers-musl
 protobuf
 
-# --- containers (docker + compose) ---
-docker
-docker-compose
-docker-buildx
-# containerd + runc are pulled in by docker
+# --- containers ---
+# k3s only (staged binary /opt/appsynergy/k3s; installer copies + enables).
+# k3s embeds its own runtime — do NOT pacstrap docker / containerd / nerdctl.
 
 # --- intentionally NOT here ---
+# docker docker-compose docker-buildx containerd nerdctl runc
 # NetworkManager iwd wireless-regdb bluez*
 # plasma* sddm kwin breeze* dolphin konsole kate
 # mesa vulkan pipewire sof-firmware intel-media-driver

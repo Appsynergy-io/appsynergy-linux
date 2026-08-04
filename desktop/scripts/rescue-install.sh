@@ -104,10 +104,21 @@ cp -a "$PAYLOAD"/pkgs/appsynergy-*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/
 install -Dm755 "$PAYLOAD/appsynergy-install" "$R/usr/local/bin/appsynergy-install" \
   || die "installer binary missing from payload"
 
-mount --bind /proc "$R/proc" || die "bind /proc failed"
-mount --bind /sys  "$R/sys"  || die "bind /sys failed"
-mount --bind /dev  "$R/dev"  || die "bind /dev failed"
-mount --bind /run  "$R/run"  2>/dev/null || true
+# --rbind, not --bind: a plain bind mount does NOT carry submounts, and the one
+# that matters is efivarfs at /sys/firmware/efi/efivars. Without it the chroot
+# sees an empty directory there, `efibootmgr -c` reports "EFI variables are not
+# supported on this system", and the install dies AFTER the bootloader but
+# BEFORE the server overlay, the initramfs and the service enablement — i.e. it
+# leaves a box with no remote-unlock initrd. Measured on OVH rescue, which is
+# UEFI-booted with efivarfs mounted rw on the host. --make-rslave keeps our
+# unmounts from propagating back into the rescue system's own mounts.
+mount --rbind /proc "$R/proc" || die "rbind /proc failed"
+mount --make-rslave "$R/proc"
+mount --rbind /sys "$R/sys" || die "rbind /sys failed"
+mount --make-rslave "$R/sys"
+mount --rbind /dev "$R/dev" || die "rbind /dev failed"
+mount --make-rslave "$R/dev"
+mount --rbind /run "$R/run" 2>/dev/null && mount --make-rslave "$R/run" || true
 cp /etc/resolv.conf "$R/etc/resolv.conf" 2>/dev/null || true
 
 # --------------------------------------------------------------------- install

@@ -5,9 +5,11 @@ Destructive full-disk installer for the live USB. Built into the ISO by
 
 | Flag | Desktop (default) | Server |
 |------|-------------------|--------|
-| `--variant` | `desktop` | `server` |
+| `--variant` | `desktop` (your choice) | `server` (your choice) |
 | Packages | `packages-target.txt` | `packages-target-server.txt` |
-| Kernel (local) | `linux-appsynergy` | `linux-appsynergy-server` |
+| Kernel (local) | `linux-appsynergy` | **CPU auto:** `…-server-skylake` (Skylake/Kaby/Coffee/Comet/Xeon E3) **or** `…-server-tigerlake` (11th gen / 1185G7) — installs **one** |
+| FDE | LUKS2 full-disk | same |
+| TPM | auto-enroll when `/dev/tpm*` present (`--no-tpm` to skip) | same |
 | Network | NetworkManager + iwd | systemd-networkd + resolved |
 | DE | Plasma / SDDM | none |
 | Firewall | (ufw in pkg list) | nftables seed + sysctl |

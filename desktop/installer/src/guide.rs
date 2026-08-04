@@ -359,6 +359,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     }
 
     // --- 5. Summary ---
+    let ksel = crate::detect::select_kernel_live(server);
     println!();
     println!("------------------------------------------------------------");
     println!(
@@ -374,6 +375,32 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     } else if let Some(ref d) = cli.disk {
         println!("  Disk:     {} — NUKE existing", d.display());
     }
+    println!(
+        "  CPU:      {} ({})",
+        if ksel.cpu_model.is_empty() {
+            "unknown"
+        } else {
+            ksel.cpu_model.as_str()
+        },
+        ksel.family_label
+    );
+    println!(
+        "  Kernel:   {}",
+        if ksel.pkg_prefixes.is_empty() {
+            "(no host-max package for this CPU — install will error)".into()
+        } else {
+            ksel.pkg_prefixes.join(", ")
+        }
+    );
+    println!("  FDE:      LUKS2 full-disk");
+    println!(
+        "  TPM:      {}",
+        if crate::detect::tpm_present() {
+            "present → auto-enroll at install (passphrase kept)"
+        } else {
+            "not present → passphrase unlock only"
+        }
+    );
     println!(
         "  Password: {}",
         if cli.password_file.is_some() || Path::new("/tmp/appsynergy-key").is_file() {

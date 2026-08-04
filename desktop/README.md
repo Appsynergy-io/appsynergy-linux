@@ -9,7 +9,7 @@
 
 - Live environment: console, NetworkManager/iwd, install tools
 - Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `linux-appsynergy`
-- Server target: headless, nftables + WireGuard + networkd, `linux-appsynergy-server-skylake + -tigerlake`
+- Server target: headless, nftables + WireGuard + networkd, **k3s**, CPU-auto server kernel
 - Shell: **bash** default (fish optional interactive)
 
 ### Server OS (keep list)
@@ -24,7 +24,7 @@ Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 | sysctl FQ/BBR, journald caps, watchdog | RAUC, verity, UKI |
 | AppArmor | Plasma, NM, browsers |
 | WG / nft / namespaces / cgroup v2 / XDP-ready kernel | appsynergy-linux fabric apps |
-| docker + docker-compose | edgectl / custom orchestrator CLIs |
+| **k3s** (no docker/containerd/nerdctl) | edgectl / custom orchestrator CLIs |
 | same LUKS+btrfs layout as desktop | |
 
 ## Build ISO
@@ -132,6 +132,6 @@ for Chromium/Brave hybrid passkeys; user groups include `lp`/`rfkill`/`audio`/`i
 | Go migrator | `go` |
 | Cargo fallback | `rustup` |
 | musl release | `musl` `kernel-headers-musl` |
-| Containers | `docker` `docker-compose` `docker-buildx` |
+| Containers | **server: k3s only** · desktop: none (no docker) |
 
 **Not packaged on ISO:** NativeLink binary tree, farm `~/bin/bazel` wrapper — **restore from backup** after install.

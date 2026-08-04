@@ -144,6 +144,14 @@ if [[ ! -x "$PROFILE/airootfs/usr/local/bin/grok" || ! -x "$PROFILE/airootfs/usr
   exit 1
 fi
 
+echo "==> Stage k3s (server payload)"
+as_build_user env HOME="$build_home" bash "$ROOT/scripts/stage-k3s.sh" \
+  || bash "$ROOT/scripts/stage-k3s.sh"
+if [[ ! -x "$PROFILE/airootfs/opt/appsynergy/k3s/k3s" ]]; then
+  echo "ERROR: k3s binary not staged — server installs require it"
+  exit 1
+fi
+
 mkdir -p "$OUT"
 # Only remove WORK if empty/unused and CLEAN=1; never kill processes.
 if [[ "${CLEAN:-0}" == "1" && -d $WORK ]]; then

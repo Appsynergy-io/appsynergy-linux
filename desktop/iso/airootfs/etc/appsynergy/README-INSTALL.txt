@@ -17,7 +17,7 @@ Desktop defaults:
   Locale:   en_US.UTF-8
   Timezone: America/Sao_Paulo
   Desktop:  Plasma (Breeze) + Brave + btrfs-assistant
-  Dev:      docker + docker compose, rustup, go, node, clang, code, …
+  Dev:      rustup, go, node, clang, code, … (no docker; k3s is server-only)
 
 Server defaults (see kernel docs SERVER-OS.md keep list):
   Disk:     /dev/sda

@@ -13,6 +13,7 @@
 
 mod cmd;
 mod config;
+mod detect;
 mod disk;
 mod guide;
 
@@ -22,6 +23,7 @@ mod adversarial_tests;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use config::{Cli, Config, KernelMode, Variant, APPSYNERGY_REPO};
+use detect::KernelSelection;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -107,6 +109,7 @@ fn try_main() -> Result<()> {
     step("appsynergy-repo", || register_appsynergy_repo(&cfg))?;
     step("branding", || install_branding(&cfg))?;
     step("browsers", || install_browsers(&cfg))?;
+    step("k3s", || install_k3s(&cfg))?;
     step("fstab-crypttab", || fstab_crypttab(&cfg))?;
     step("locale", || locale_hostname(&cfg))?;
     step("os-release", || apply_os_release(&cfg))?;
@@ -147,7 +150,7 @@ fn try_main() -> Result<()> {
     if cfg.variant.is_server() {
         println!("  4. Edit /etc/systemd/network/*.network if DHCP is wrong");
         println!("  5. Unlock order: TPM → ssh root@ip (initrd) → console — /etc/appsynergy/UNLOCK.txt");
-        println!("  6. wg + nft: /etc/nftables.conf; containers: docker + docker compose");
+        println!("  6. wg + nft: /etc/nftables.conf; containers: k3s (no docker/containerd/nerdctl)");
     }
     println!("============================================================");
     let closes: Vec<String> = cfg
@@ -206,7 +209,28 @@ fn banner(cfg: &Config) {
         "  locale:     {}  keymap: {}  tz: {}",
         cfg.locale, cfg.keymap, cfg.timezone
     );
+    let ksel = detect::select_kernel_live(cfg.variant.is_server());
     println!("  kernel:     {} ({})", cfg.kernel, cfg.variant);
+    if cfg.kernel == KernelMode::Local {
+        println!(
+            "  cpu:        {} ({})",
+            if ksel.cpu_model.is_empty() {
+                "unknown"
+            } else {
+                ksel.cpu_model.as_str()
+            },
+            ksel.family_label
+        );
+        if ksel.pkg_prefixes.is_empty() {
+            println!("  pkg:        (none matched — install will fail unless --kernel repo)");
+        } else {
+            println!(
+                "  pkg:        {}  [{}]",
+                ksel.pkg_prefixes.join(", "),
+                ksel.reason
+            );
+        }
+    }
     println!("  packages:   {}", cfg.pkgs_file.display());
     println!(
         "  password:   {}",
@@ -216,16 +240,19 @@ fn banner(cfg: &Config) {
             "interactive prompts"
         }
     );
+    println!("  fde:        LUKS2 full-disk");
     println!(
         "  tpm:        {} (pcrs={})",
         if cfg.tpm {
             if cfg.tpm_required {
                 "enroll (required)"
             } else {
-                "enroll (auto)"
+                "enroll (auto if TPM present)"
             }
+        } else if detect::tpm_present() {
+            "skip (--no-tpm)"
         } else {
-            "skip"
+            "skip (no TPM)"
         },
         cfg.tpm_pcrs
     );
@@ -539,7 +566,18 @@ fn install_local_kernel(cfg: &Config) -> Result<()> {
         return Ok(());
     }
     let dir = &cfg.local_pkgdir;
-    let pairs = find_kernel_pkg_pairs(dir, cfg.variant)?;
+    let sel = detect::select_kernel_live(cfg.variant.is_server());
+    println!(
+        "    cpu: {} ({}) — {}",
+        if sel.cpu_model.is_empty() {
+            "unknown"
+        } else {
+            sel.cpu_model.as_str()
+        },
+        sel.family_label,
+        sel.reason
+    );
+    let pairs = find_kernel_pkg_pairs(dir, cfg.variant, &sel)?;
     let dest = cfg.mnt.join("root/pkgs");
     fs::create_dir_all(&dest)?;
     for (pkg, hdr) in &pairs {
@@ -558,9 +596,16 @@ fn install_local_kernel(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Server ships **both** host-max kernels (ovh + nuc). Installer boots the match by CPU.
-/// Desktop still installs a single desktop kernel package pair.
-fn find_kernel_pkg_pairs(dir: &Path, variant: Variant) -> Result<Vec<(PathBuf, PathBuf)>> {
+/// Install **one** kernel package pair for the operator-chosen variant.
+///
+/// - **desktop** → `linux-appsynergy` (+ headers)
+/// - **server**  → CPU-mapped host-max only (`…-server-skylake` **or** `…-server-tigerlake`),
+///   including Kaby/Coffee/Comet → skylake package. Does **not** install both.
+fn find_kernel_pkg_pairs(
+    dir: &Path,
+    variant: Variant,
+    sel: &KernelSelection,
+) -> Result<Vec<(PathBuf, PathBuf)>> {
     let try_pair = |prefix: &str| -> Option<(PathBuf, PathBuf)> {
         // glob_simple only supports one `*` — filter versions in match_kernel_*.
         let mut pkgs = list_glob(dir, &format!("{prefix}-*.pkg.tar.zst"));
@@ -585,87 +630,59 @@ fn find_kernel_pkg_pairs(dir: &Path, variant: Variant) -> Result<Vec<(PathBuf, P
     };
 
     if variant.is_server() {
-        let mut pairs = Vec::new();
-        // Preferred: dual max-performance host kernels
-        for prefix in [
-            "linux-appsynergy-server-skylake",
-            "linux-appsynergy-server-tigerlake",
-        ] {
+        // Preferred: exact CPU-mapped prefix, then legacy alias for that flavor only.
+        let mut candidates: Vec<&str> = sel.pkg_prefixes.clone();
+        if let Some(flavor) = sel.server_flavor {
+            for leg in flavor.legacy_pkg_prefixes() {
+                if !candidates.contains(leg) {
+                    candidates.push(leg);
+                }
+            }
+        }
+        for prefix in &candidates {
             if let Some(p) = try_pair(prefix) {
-                pairs.push(p);
+                if *prefix != sel.pkg_prefixes.first().copied().unwrap_or("") {
+                    eprintln!("WARN: using legacy kernel package prefix {prefix}");
+                }
+                return Ok(vec![p]);
             }
         }
-        if !pairs.is_empty() {
-            if pairs.len() < 2 {
-                eprintln!(
-                    "WARN: only {}/2 host-max server kernels present (want skylake+tigerlake)",
-                    pairs.len()
-                );
-            }
-            return Ok(pairs);
-        }
-        // Legacy names / portable
-        for prefix in [
-            "linux-appsynergy-server-ovh",
-            "linux-appsynergy-server-nuc",
-            "linux-appsynergy-server",
-        ] {
-            if let Some(p) = try_pair(prefix) {
-                eprintln!("WARN: legacy kernel package prefix {prefix}; prefer skylake/tigerlake");
-                pairs.push(p);
-            }
-        }
-        if !pairs.is_empty() {
-            return Ok(pairs);
-        }
-        eprintln!("WARN: no server kernel pkgs; falling back to linux-appsynergy");
-        if let Some(p) = try_pair("linux-appsynergy").or_else(|| try_pair("linux-cachyos-igpu")) {
-            return Ok(vec![p]);
-        }
+        // Unmapped CPU or missing ISO payload: clear failure (no silent wrong-ISA install).
         bail!(
-            "kernel mode local but missing pkgs in {} (variant=server; need linux-appsynergy-server-skylake + -tigerlake + headers)",
-            dir.display()
+            "no server kernel package for this CPU in {}.\n\
+             cpu: {} ({})\n\
+             {}\n\
+             Ship linux-appsynergy-server-skylake (Skylake/Kaby/Coffee/Comet/Xeon E3 v5–v6)\n\
+             or linux-appsynergy-server-tigerlake (Tiger Lake / 11th gen), with headers.\n\
+             Or re-run with --kernel repo for stock Arch linux.",
+            dir.display(),
+            if sel.cpu_model.is_empty() {
+                "unknown"
+            } else {
+                sel.cpu_model.as_str()
+            },
+            sel.family_label,
+            sel.reason
         );
     }
 
-    try_pair("linux-appsynergy")
-        .or_else(|| try_pair("linux-cachyos-igpu"))
-        .map(|p| vec![p])
+    // Desktop: single workstation package.
+    for prefix in &sel.pkg_prefixes {
+        if let Some(p) = try_pair(prefix) {
+            return Ok(vec![p]);
+        }
+    }
+    try_pair("linux-cachyos-igpu")
+        .map(|p| {
+            eprintln!("WARN: linux-appsynergy missing; using linux-cachyos-igpu");
+            vec![p]
+        })
         .with_context(|| {
             format!(
                 "kernel mode local but missing pkgs in {} (variant=desktop; need linux-appsynergy + headers)",
                 dir.display()
             )
         })
-}
-
-/// Which host-max server kernel flavor matches this live CPU (install-time).
-/// `skylake` = Xeon E3-1270 v6 class; `tigerlake` = 11th-gen (1185G7).
-fn detect_server_kernel_flavor() -> &'static str {
-    let cpu = fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-    let model = cpu
-        .lines()
-        .find(|l| l.starts_with("model name"))
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if model.contains("e3-1270")
-        || model.contains("e3-12")
-        || model.contains("skylake")
-        || (model.contains("xeon") && model.contains("v6"))
-    {
-        return "skylake";
-    }
-    if model.contains("1185g7")
-        || model.contains("tiger lake")
-        || model.contains("tigerlake")
-        || model.contains("11th gen")
-    {
-        return "tigerlake";
-    }
-    eprintln!(
-        "WARN: CPU not recognized for server kernel default ({model}); defaulting to skylake entry"
-    );
-    "skylake"
 }
 
 fn match_kernel_pkg_prefix(prefix: &str, name: &str) -> bool {
@@ -805,6 +822,110 @@ pkgs=(/root/pkgs/brave-bin-*.pkg.tar.zst /root/pkgs/thorium-browser-bin-*.pkg.ta
 if ((${#pkgs[@]})); then pacman -U --noconfirm --overwrite '*' "${pkgs[@]}"; fi
 "#,
     )?;
+    Ok(())
+}
+
+/// Server only: install staged k3s binary + unit + default config (no docker).
+/// Live path: `/opt/appsynergy/k3s/` (built by `scripts/stage-k3s.sh`).
+fn install_k3s(cfg: &Config) -> Result<()> {
+    if !cfg.variant.is_server() {
+        println!("    skip k3s (desktop — no container runtime on workstation image)");
+        return Ok(());
+    }
+    let src = Path::new("/opt/appsynergy/k3s");
+    let bin = src.join("k3s");
+    if !bin.is_file() {
+        bail!(
+            "server install requires k3s at {} (stage with scripts/stage-k3s.sh before ISO build)",
+            bin.display()
+        );
+    }
+    let dest_bin = cfg.mnt.join("usr/local/bin/k3s");
+    fs::create_dir_all(cfg.mnt.join("usr/local/bin"))?;
+    fs::copy(&bin, &dest_bin).with_context(|| format!("copy k3s → {}", dest_bin.display()))?;
+    // mode may not stick through copy from some FS; force executable in chroot
+    cmd::arch_chroot(&cfg.mnt, "chmod 755 /usr/local/bin/k3s")?;
+    // kubectl / crictl convenience symlinks (k3s multi-call)
+    cmd::arch_chroot(
+        &cfg.mnt,
+        r#"
+ln -sfn k3s /usr/local/bin/kubectl
+ln -sfn k3s /usr/local/bin/crictl
+ln -sfn k3s /usr/local/bin/ctr
+"#,
+    )?;
+
+    let unit_src = src.join("k3s.service");
+    let unit_dst = cfg.mnt.join("usr/lib/systemd/system/k3s.service");
+    fs::create_dir_all(cfg.mnt.join("usr/lib/systemd/system"))?;
+    if unit_src.is_file() {
+        fs::copy(&unit_src, &unit_dst)?;
+    } else {
+        fs::write(
+            &unit_dst,
+            r#"[Unit]
+Description=Lightweight Kubernetes
+Documentation=https://k3s.io
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+EnvironmentFile=-/etc/systemd/system/k3s.service.env
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+ExecStartPre=-/sbin/modprobe br_netfilter
+ExecStartPre=-/sbin/modprobe overlay
+ExecStart=/usr/local/bin/k3s server
+ExecReload=/bin/kill -s HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
+"#,
+        )?;
+    }
+    let env_src = src.join("k3s.service.env");
+    let env_dst = cfg.mnt.join("etc/systemd/system/k3s.service.env");
+    fs::create_dir_all(cfg.mnt.join("etc/systemd/system"))?;
+    if env_src.is_file() {
+        fs::copy(&env_src, &env_dst)?;
+    } else {
+        fs::write(&env_dst, b"")?;
+    }
+    cmd::arch_chroot(&cfg.mnt, "chmod 400 /etc/systemd/system/k3s.service.env || true")?;
+
+    // Default k3s config (traefik/servicelb off); operator can replace after boot.
+    let cfg_dst = cfg.mnt.join("etc/rancher/k3s/config.yaml");
+    fs::create_dir_all(cfg.mnt.join("etc/rancher/k3s"))?;
+    let cfg_candidates = [
+        Path::new("/etc/appsynergy/server/k3s-config.yaml"),
+        Path::new("/etc/appsynergy/k3s-config.yaml"),
+    ];
+    let mut wrote = false;
+    for c in cfg_candidates {
+        if c.is_file() {
+            fs::copy(c, &cfg_dst)?;
+            wrote = true;
+            break;
+        }
+    }
+    if !wrote {
+        fs::write(
+            &cfg_dst,
+            "disable:\n  - traefik\n  - servicelb\nsecrets-encryption: true\nwrite-kubeconfig-mode: \"0600\"\n",
+        )?;
+    }
+    println!(
+        "    k3s → /usr/local/bin/k3s + unit + /etc/rancher/k3s/config.yaml ({})",
+        fs::read_to_string(src.join("VERSION")).unwrap_or_else(|_| "unknown".into()).trim()
+    );
     Ok(())
 }
 
@@ -1157,13 +1278,11 @@ fn install_ssh_keys(cfg: &Config) -> Result<()> {
 }
 
 fn create_users(cfg: &Config) -> Result<()> {
-    // `docker` group: membership is equivalent to root (the socket will run any
-    // container as uid 0 with host mounts). Included deliberately so the operator
-    // can use docker/compose without sudo; drop it if that tradeoff is unwanted.
+    // No docker group — containers are k3s only (no host docker/containerd/nerdctl).
     let groups = if cfg.variant.is_server() {
-        "wheel,systemd-journal,tss,docker"
+        "wheel,systemd-journal,tss"
     } else {
-        "wheel,audio,input,video,lp,rfkill,storage,network,tss,uucp,docker"
+        "wheel,audio,input,video,lp,rfkill,storage,network,tss,uucp"
     };
     let pam_wallet = if cfg.variant.is_server() {
         ""
@@ -1303,12 +1422,8 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
         "intel-ucode.img"
     };
 
-    // Map vmlinuz-* → flavor for entry name/title (server dual kernels).
-    let preferred = if cfg.variant.is_server() {
-        detect_server_kernel_flavor()
-    } else {
-        ""
-    };
+    // One kernel installed (variant + CPU). Map vmlinuz name → boot entry.
+    let sel = detect::select_kernel_live(cfg.variant.is_server());
     let mut default_entry = String::from("appsynergy.conf");
     let mut wrote_any = false;
 
@@ -1329,23 +1444,12 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
             || kver.contains("appsynergy-server-nuc")
         {
             ("appsynergy-tigerlake.conf", "AppSynergy Server (tigerlake)")
-        } else if kver.contains("appsynergy-server") {
-            ("appsynergy.conf", cfg.variant.boot_entry_title())
-        } else if cfg.variant.is_server() {
-            ("appsynergy.conf", cfg.variant.boot_entry_title())
         } else {
             ("appsynergy.conf", cfg.variant.boot_entry_title())
         };
 
-        if cfg.variant.is_server() {
-            if preferred == "skylake" && entry_name == "appsynergy-skylake.conf" {
-                default_entry = entry_name.to_string();
-            } else if preferred == "tigerlake" && entry_name == "appsynergy-tigerlake.conf" {
-                default_entry = entry_name.to_string();
-            }
-        } else {
-            default_entry = entry_name.to_string();
-        }
+        // Single install path: last written entry is the default (only one expected).
+        default_entry = entry_name.to_string();
 
         let mut entry = format!("title   {title}\nlinux   /{vmlinuz}\n");
         if cfg.mnt.join("boot").join(ucode).is_file() {
@@ -1367,23 +1471,14 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
         bail!("no boot entries written (missing initramfs for installed kernels)");
     }
 
-    // If preferred flavor package missing, default to first host-max entry present.
     if cfg.variant.is_server() {
-        let entries_dir = cfg.mnt.join("boot/loader/entries");
-        if !entries_dir.join(&default_entry).is_file() {
-            for cand in [
-                "appsynergy-skylake.conf",
-                "appsynergy-tigerlake.conf",
-                "appsynergy.conf",
-            ] {
-                if entries_dir.join(cand).is_file() {
-                    default_entry = cand.to_string();
-                    break;
-                }
-            }
-        }
+        let flavor = sel
+            .server_flavor
+            .map(|f| f.as_str())
+            .unwrap_or("unmapped");
         println!(
-            "    server kernel default: {default_entry} (detected flavor={preferred})"
+            "    server boot default: {default_entry} (cpu family={}, flavor={flavor})",
+            sel.family_label
         );
     }
 
@@ -1400,6 +1495,12 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
 
 /// INSTALL-PROBLEMS: bootctl install may not fix NVRAM after a full wipe.
 fn fix_efi_nvram(cfg: &Config) -> Result<()> {
+    // No EFI variables (legacy BIOS / some VMs): boot files on ESP still work;
+    // NVRAM is optional. Do not fail the whole install.
+    if !Path::new("/sys/firmware/efi/efivars").is_dir() {
+        eprintln!("WARN: no EFI variables; skip NVRAM (ESP loader entries already written)");
+        return Ok(());
+    }
     // PARTUUID of new ESP
     let partuuid = cmd::output(
         "efibootmgr",
@@ -1474,7 +1575,7 @@ fn fix_efi_nvram(cfg: &Config) -> Result<()> {
         } else {
             format!("{label} (disk{i})")
         };
-        cmd::run(
+        match cmd::run(
             "efibootmgr",
             "efibootmgr",
             &[
@@ -1488,8 +1589,15 @@ fn fix_efi_nvram(cfg: &Config) -> Result<()> {
                 "-l",
                 r"\EFI\systemd\systemd-bootx64.efi",
             ],
-        )?;
-        println!("    NVRAM entry {lab} -> {}", m.efi_part.display());
+        ) {
+            Ok(()) => println!("    NVRAM entry {lab} -> {}", m.efi_part.display()),
+            Err(e) => {
+                eprintln!(
+                    "WARN: efibootmgr failed for {} ({e:#}); ESP still has systemd-boot files",
+                    m.efi_part.display()
+                );
+            }
+        }
     }
     let _ = partuuid; // primary ESP uuid already logged
     Ok(())
@@ -1666,27 +1774,31 @@ exit $rc
 }
 
 fn enable_services(cfg: &Config) -> Result<()> {
+    // Never enable host docker/containerd/nerdctl (removed from package lists).
+    cmd::arch_chroot_ok(
+        &cfg.mnt,
+        "systemctl disable --now docker.service docker.socket containerd.service 2>/dev/null || true; \
+         systemctl mask docker.service docker.socket containerd.service 2>/dev/null || true",
+    );
     if cfg.variant.is_server() {
+        // Server containers: k3s only.
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl enable sshd systemd-networkd systemd-resolved nftables apparmor docker fstrim.timer || true",
+            "systemctl enable sshd systemd-networkd systemd-resolved nftables apparmor k3s fstrim.timer || true",
         );
-        // Point /etc/resolv.conf at resolved stub when possible
         cmd::arch_chroot_ok(
             &cfg.mnt,
             r#"ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf || true"#,
         );
-        // Keep desktop services off a headless host. docker is NOT listed here:
-        // it is part of the server stack now and is enabled above — disabling it
-        // here would silently undo that (it did, until this was fixed).
         cmd::arch_chroot_ok(
             &cfg.mnt,
             "systemctl disable sddm NetworkManager bluetooth 2>/dev/null || true",
         );
     } else {
+        // Desktop: no k3s, no docker.
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl enable NetworkManager sddm sshd docker fstrim.timer bluetooth || true",
+            "systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true",
         );
         cmd::arch_chroot_ok(&cfg.mnt, "systemctl enable obex || true");
         cmd::arch_chroot_ok(
