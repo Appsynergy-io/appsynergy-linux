@@ -16,7 +16,7 @@
 
 Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 
-**`/home/imma/projects/kernel/docs/SERVER-OS.md`**
+**`/home/imma/projects/appsynergy-linux/kernel/docs/SERVER-OS.md`**
 
 | Keep (summary) | Skip |
 |----------------|------|
@@ -31,7 +31,7 @@ Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 
 ```bash
 sudo pacman -S --needed archiso
-cd /home/imma/projects/appsynergy-desktop
+cd /home/imma/projects/appsynergy-linux/desktop
 sudo ./scripts/build-iso.sh
 ```
 

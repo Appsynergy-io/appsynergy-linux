@@ -5,9 +5,9 @@
 **Panel:** 1920×1200 (16:10); 3840×2400 is 2× master.
 
 ```bash
-gwenview /home/imma/projects/appsynergy-desktop/brand-review/candidates-all/*1920x1200*
+gwenview /home/imma/projects/appsynergy-linux/desktop/brand-review/candidates-all/*1920x1200*
 # or
-dolphin /home/imma/projects/appsynergy-desktop/brand-review/candidates-all/
+dolphin /home/imma/projects/appsynergy-linux/desktop/brand-review/candidates-all/
 ```
 
 Reply with **desktop ID + login ID** (e.g. `v2-A` + `v3-D`). Lock = login unless you say otherwise.
@@ -58,7 +58,7 @@ Hub-spoke mark from appsynergy-rs SVG (not AI). Panel-thick strokes for small si
 | `icons/start-menu/preview-on-dark-panel.png` | Side-by-side size preview |
 
 ```bash
-gwenview /home/imma/projects/appsynergy-desktop/brand-review/icons/start-menu/preview-on-dark-panel.png
+gwenview /home/imma/projects/appsynergy-linux/desktop/brand-review/icons/start-menu/preview-on-dark-panel.png
 ```
 
 Pick **start** (transparent) or **start-pad**. Wire into Plasma Kickoff after wallpaper pick.

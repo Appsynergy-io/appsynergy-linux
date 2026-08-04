@@ -1,0 +1,7 @@
+# Host-local / secrets (subtrees carry their own build-artifact rules)
+*.local.md
+CLAUDE.local.md
+CODE.local.md
+secrets.env
+.env
+.env.*

@@ -299,7 +299,7 @@ cd ~/src/linux-cachyos   # or extracted linux-X.Y
 zcat /proc/config.gz > .config
 # merge fragment from this repo:
 scripts/kconfig/merge_config.sh -m .config \
-  /home/imma/projects/kernel/configs/rustopt.fragment
+  /home/imma/projects/appsynergy-linux/kernel/configs/rustopt.fragment
 make LLVM=1 LLVM_IAS=1 olddefconfig
 make LLVM=1 LLVM_IAS=1 localmodconfig   # OPTIONAL: further strip from lsmod
 # After localmodconfig, re-enable anything needed for boot that was idle:
@@ -360,7 +360,7 @@ perf record -e br_inst_retired.near_taken:u -b -c 500009 \
 # Cachy documents AutoFDO in kernel PKGBUILDs; typical flow:
 create_llvm_prof --binary=/usr/lib/modules/(uname -r)/vmlinux \
   --profile=/tmp/kernel-autofdo.data --format=extbinary \
-  --out=/home/imma/projects/kernel/profiles/rust-kernel.afdo
+  --out=/home/imma/projects/appsynergy-linux/kernel/profiles/rust-kernel.afdo
 
 # 4) Rebuild kernel with:
 #   CLANG_AUTOFDO_PROFILE=/path/to/rust-kernel.afdo
@@ -450,8 +450,8 @@ set -Ux CARGO_TARGET_DIR /tmp/cargo-target-$USER
 ### 5.0 Baseline capture (before reboot into new kernel)
 
 ```fish
-mkdir -p /home/imma/projects/kernel/bench/(date +%Y%m%d)-cachyos
-set B /home/imma/projects/kernel/bench/(date +%Y%m%d)-cachyos
+mkdir -p /home/imma/projects/appsynergy-linux/kernel/bench/(date +%Y%m%d)-cachyos
+set B /home/imma/projects/appsynergy-linux/kernel/bench/(date +%Y%m%d)-cachyos
 uname -a > $B/uname.txt
 cat /proc/cmdline > $B/cmdline.txt
 ```

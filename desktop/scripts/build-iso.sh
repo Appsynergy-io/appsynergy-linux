@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Monorepo root: sibling subtrees packages/ and kernel/ live beside desktop/.
+MONO="$(cd "$ROOT/.." && pwd)"
 PROFILE="$ROOT/iso"
 OUT="${OUT:-$ROOT/out}"
 # Unique work dir by default so we never need to wipe a busy tree.
@@ -38,7 +40,17 @@ file "$INSTALLER_BIN"
 
 # Refresh local packages into profile (kernel, branding, browsers)
 SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
-PKG_REPO=/home/imma/projects/appsynergy-packages/repo/x86_64
+PKG_REPO="$MONO/packages/repo/x86_64"
+# pacman.conf cannot express a relative path, so its [appsynergy] Server is
+# absolute. Fail loudly if it drifts from PKG_REPO — a stale path silently
+# builds the ISO against the wrong package set.
+want_server="Server = file://$PKG_REPO"
+grep -qxF "$want_server" "$PROFILE/pacman.conf" || {
+  echo "ERROR: $PROFILE/pacman.conf [appsynergy] Server does not match PKG_REPO"
+  echo "  expected: $want_server"
+  echo "  actual:   $(grep -n '^Server = file://' "$PROFILE/pacman.conf" || echo '<none>')"
+  exit 1
+}
 DST_PKG="$PROFILE/airootfs/opt/appsynergy/pkgs"
 mkdir -p "$DST_PKG"
 # Prefer linux-appsynergy; keep legacy igpu name as fallback
@@ -68,8 +80,8 @@ for src in "$PKG_REPO" "$SRC_PKG"; do
   done
 done
 # Branding + mirrorlist (required offline after pacstrap)
-for src in "$PKG_REPO" /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-branding \
-           /home/imma/projects/appsynergy-packages/pkgbuilds/appsynergy-mirrorlist; do
+for src in "$PKG_REPO" "$MONO/packages/pkgbuilds/appsynergy-branding" \
+           "$MONO/packages/pkgbuilds/appsynergy-mirrorlist"; do
   if compgen -G "$src/appsynergy-branding-"*.pkg.tar.zst > /dev/null; then
     cp -a "$src"/appsynergy-branding-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
   fi

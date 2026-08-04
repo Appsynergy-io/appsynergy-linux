@@ -3,7 +3,7 @@
 # Output: out/appsynergy-server-rescue-YYYYMMDD.tar.zst + out/appsynergy-server-rescue/
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPO="${REPO:-/home/imma/projects/appsynergy-packages/repo/x86_64}"
+REPO="${REPO:-$(cd "$ROOT/.." && pwd)/packages/repo/x86_64}"
 STAMP=$(date +%Y%m%d)
 OUT_DIR="$ROOT/out/appsynergy-server-rescue"
 TAR="$ROOT/out/appsynergy-server-rescue-${STAMP}.tar.zst"

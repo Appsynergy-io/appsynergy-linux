@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-B=/home/imma/projects/kernel/bench/20260712-post-bios-5600
-BASE=/home/imma/projects/kernel/bench/20260712-baseline-cachyos
+B="$(cd "$(dirname "$0")/.." && pwd)"/bench/20260712-post-bios-5600
+BASE="$(cd "$(dirname "$0")/.." && pwd)"/bench/20260712-baseline-cachyos
 mkdir -p "$B"
 
 for g in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do

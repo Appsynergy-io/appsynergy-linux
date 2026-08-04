@@ -33,7 +33,7 @@ Packages are **unsigned** until `appsynergy-keyring` ships; use `SigLevel = Opti
 | `appsynergy-branding` | os-release + motd + shell policy |
 
 Server kernel build: `./scripts/build-linux-appsynergy-server.sh`  
-(fragment: `/home/imma/projects/kernel/configs/server.fragment`).
+(fragment: `/home/imma/projects/appsynergy-linux/kernel/configs/server.fragment`).
 
 Brave/Thorium stay as local USB payload or AUR for now (large / AUR).
 

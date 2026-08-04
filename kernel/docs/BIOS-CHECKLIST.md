@@ -232,7 +232,7 @@ Optional re-baseline cargo after XMP only (compare to `bench/20260712-baseline-c
 
 ```fish
 # same conditions as baseline: EPP performance, CARGO_INCREMENTAL=0, no RUSTFLAGS
-/home/imma/projects/kernel/scripts/bench-rust.fish /home/imma/projects/combly xmp-after
+/home/imma/projects/appsynergy-linux/kernel/scripts/bench-rust.fish /home/imma/projects/combly xmp-after
 ```
 
 ---

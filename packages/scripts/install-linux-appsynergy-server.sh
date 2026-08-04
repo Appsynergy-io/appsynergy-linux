@@ -1,9 +1,12 @@
 #!/usr/bin/bash
 # Stage/install both host-max server kernels (ovh + nuc) into repo + ISO payload.
 set -euo pipefail
+
+# Monorepo root: sibling subtree desktop/ lives beside packages/.
+MONO="$(cd "$(dirname "$0")/../.." && pwd)"
 KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)/repo/x86_64}"
-ISO_PKGS="${ISO_PKGS:-/home/imma/projects/appsynergy-desktop/iso/airootfs/opt/appsynergy/pkgs}"
+ISO_PKGS="${ISO_PKGS:-$MONO/desktop/iso/airootfs/opt/appsynergy/pkgs}"
 
 pick() {
   local dir=$1 prefix=$2

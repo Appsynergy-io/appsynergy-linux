@@ -1,6 +1,9 @@
 #!/usr/bin/bash
 # Install freshly built linux-appsynergy packages and prefer them in boot.
 set -euo pipefail
+
+# Monorepo root: sibling subtree desktop/ lives beside packages/.
+MONO="$(cd "$(dirname "$0")/../.." && pwd)"
 KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)/repo/x86_64}"
 cd "$KDIR"
@@ -18,7 +21,7 @@ cp -a "${filtered[@]}" "$REPO/"
 echo "Installing: ${filtered[*]}"
 sudo pacman -U --noconfirm "${filtered[@]}"
 # Stage into desktop ISO payload
-ISO_PKGS=/home/imma/projects/appsynergy-desktop/iso/airootfs/opt/appsynergy/pkgs
+ISO_PKGS="$MONO/desktop/iso/airootfs/opt/appsynergy/pkgs"
 if [[ -d $ISO_PKGS ]]; then
   cp -a "${filtered[@]}" "$ISO_PKGS/"
   # remove legacy igpu from ISO payload if appsynergy present

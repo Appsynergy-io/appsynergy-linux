@@ -2,7 +2,7 @@
 # Root entrypoint for a clean ISO build. Removes dead work dirs, then builds.
 set -uo pipefail
 
-ROOT=/home/imma/projects/appsynergy-desktop
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG=/tmp/appsynergy-iso-build-clean.log
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin"
 export CLEAN=0

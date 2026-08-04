@@ -7,17 +7,20 @@
 # X86_NATIVE_CPU (build-host 12900K). Force generic_v3 + KCFLAGS march.
 set -euo pipefail
 
+# Monorepo root: sibling subtrees kernel/ and desktop/ live beside packages/.
+MONO="$(cd "$(dirname "$0")/../.." && pwd)"
+
 FLAVOR="${1:-}"
 case "$FLAVOR" in
   skylake)
     SUFFIX=appsynergy-server-skylake
-    FRAG_DEFAULT=/home/imma/projects/kernel/configs/server-skylake.fragment
+    FRAG_DEFAULT="$MONO/kernel/configs/server-skylake.fragment"
     MARCH=skylake
     DESC="E3-1270 v6 / skylake / igb"
     ;;
   tigerlake)
     SUFFIX=appsynergy-server-tigerlake
-    FRAG_DEFAULT=/home/imma/projects/kernel/configs/server-tigerlake.fragment
+    FRAG_DEFAULT="$MONO/kernel/configs/server-tigerlake.fragment"
     MARCH=tigerlake
     DESC="i7-1185G7 / tigerlake / igc"
     ;;
@@ -31,7 +34,7 @@ KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 OUT_REPO="${OUT_REPO:-$(cd "$(dirname "$0")/.." && pwd)/repo/x86_64}"
 FRAG="${FRAG:-$FRAG_DEFAULT}"
 CFG_SRC="${CFG_SRC:-}"
-ISO_PKGS="${ISO_PKGS:-/home/imma/projects/appsynergy-desktop/iso/airootfs/opt/appsynergy/pkgs}"
+ISO_PKGS="${ISO_PKGS:-$MONO/desktop/iso/airootfs/opt/appsynergy/pkgs}"
 LOG="/tmp/linux-${SUFFIX}-build.log"
 
 [[ -d $KDIR ]] || { echo "KDIR missing: $KDIR"; exit 1; }
