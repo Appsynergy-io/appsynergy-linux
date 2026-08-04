@@ -1,0 +1,34 @@
+#!/usr/bin/bash
+# Corporate open-corner [appsynergy] — brand teal; centered on TTY when possible.
+
+COLOR=/usr/share/appsynergy/ascii/logo-color.txt
+PLAIN=/usr/share/appsynergy/ascii/logo.txt
+
+center_block() {
+  local file=$1
+  local cols=80 width=0 pad line bare
+  cols=$(tput cols 2>/dev/null || echo 80)
+  while IFS= read -r line || [[ -n ${line-} ]]; do
+    bare=$(printf '%s' "$line" | sed -E 's/\x1B\[[0-9;]*m//g')
+    ((${#bare} > width)) && width=${#bare}
+  done < "$file"
+  ((width < 1)) && width=20
+  pad=$(( (cols - width) / 2 ))
+  ((pad < 0)) && pad=0
+  while IFS= read -r line || [[ -n ${line-} ]]; do
+    printf '%*s%s\n' "$pad" '' "$line"
+  done < "$file"
+}
+
+if [[ ! -t 1 ]]; then
+  cat "$PLAIN" 2>/dev/null || true
+  exit 0
+fi
+
+printf '\n'
+if [[ -f $COLOR ]]; then
+  center_block "$COLOR"
+elif [[ -f $PLAIN ]]; then
+  center_block "$PLAIN"
+fi
+printf '\n'

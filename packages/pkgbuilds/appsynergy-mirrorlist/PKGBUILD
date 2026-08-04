@@ -1,0 +1,17 @@
+# Maintainer: AppSynergy
+pkgname=appsynergy-mirrorlist
+pkgver=1
+pkgrel=1
+pkgdesc='Pacman mirrorlist / repo registration for AppSynergy Linux packages'
+arch=('any')
+url='https://git.appsynergy.io/imabee/appsynergy-packages'
+license=('MIT')
+source=('appsynergy-mirrorlist' 'appsynergy.conf')
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  install -Dm644 "$srcdir/appsynergy-mirrorlist" \
+    "$pkgdir/etc/pacman.d/appsynergy-mirrorlist"
+  install -Dm644 "$srcdir/appsynergy.conf" \
+    "$pkgdir/etc/pacman.conf.d/appsynergy.conf"
+}

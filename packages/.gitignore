@@ -1,0 +1,7 @@
+repo/
+**/pkg/
+**/src/
+**/*.pkg.tar.zst
+**/*.pkg.tar.zst.sig
+**/appsynergy-mirrorlist-*.pkg.tar*
+**/appsynergy-branding-*.pkg.tar*

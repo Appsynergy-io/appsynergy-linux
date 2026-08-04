@@ -1,0 +1,98 @@
+# Maintainer: AppSynergy
+pkgname=appsynergy-branding
+pkgver=2
+pkgrel=15
+pkgdesc='AppSynergy Linux identity: wordmark, icons, shell greeting, Plymouth (wordmark, no hub-spoke)'
+arch=('any')
+url='https://git.appsynergy.io/imabee/appsynergy-packages'
+license=('MIT')
+install=appsynergy-branding.install
+optdepends=('plymouth: animated boot splash (appsynergy theme)')
+# Local sources only (no remote download)
+source=()
+sha256sums=()
+
+package() {
+  local src="${startdir}"
+
+  # Identity — do not own /usr/lib/os-release (filesystem package on Arch hosts).
+  # Full AppSynergy install copies this into place via appsynergy-install.
+  install -Dm644 "$src/os-release" "$pkgdir/etc/appsynergy/os-release"
+  install -Dm644 "$src/os-release" "$pkgdir/usr/share/appsynergy/os-release"
+  install -Dm644 "$src/motd" "$pkgdir/etc/motd"
+  install -Dm644 "$src/SHELL-POLICY.txt" "$pkgdir/etc/appsynergy/SHELL-POLICY.txt"
+
+  # Wordmark ASCII (plain + used by fastfetch/neofetch)
+  install -Dm644 "$src/ascii/logo.txt" "$pkgdir/usr/share/appsynergy/ascii/logo.txt"
+  install -Dm644 "$src/ascii/logo-wide.txt" "$pkgdir/usr/share/appsynergy/ascii/logo-wide.txt"
+  install -Dm644 "$src/ascii/logo-color.txt" "$pkgdir/usr/share/appsynergy/ascii/logo-color.txt"
+
+  # Banner CLI
+  install -Dm755 "$src/bin/appsynergy-banner" "$pkgdir/usr/bin/appsynergy-banner"
+
+  # Interactive greeting (login shells)
+  install -Dm644 "$src/profile.d/appsynergy-greeting.sh" \
+    "$pkgdir/etc/profile.d/appsynergy-greeting.sh"
+
+  # Bashrc snippet (sourced from skel / user; not overwriting bash-owned skel)
+  if [[ -f "$src/skel/.bashrc" ]]; then
+    install -Dm644 "$src/skel/.bashrc" "$pkgdir/usr/share/appsynergy/skel/bashrc"
+    install -Dm644 "$src/skel/.bashrc" "$pkgdir/etc/skel/.bashrc.appsynergy"
+  fi
+
+  if [[ -d "$src/skel" ]]; then
+    if [[ -f "$src/skel/.config/fastfetch/config.jsonc" ]]; then
+      install -Dm644 "$src/skel/.config/fastfetch/config.jsonc" \
+        "$pkgdir/etc/skel/.config/fastfetch/config.jsonc"
+      install -Dm644 "$src/skel/.config/fastfetch/config.jsonc" \
+        "$pkgdir/usr/share/appsynergy/fastfetch/config.jsonc"
+    fi
+    if [[ -f "$src/skel/.config/neofetch/config.conf" ]]; then
+      install -Dm644 "$src/skel/.config/neofetch/config.conf" \
+        "$pkgdir/etc/skel/.config/neofetch/config.conf"
+    fi
+    # skel fish conf.d is a no-op stub (avoids double with /etc/fish/conf.d)
+    if [[ -f "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" ]]; then
+      install -Dm644 "$src/skel/.config/fish/conf.d/appsynergy-greeting.fish" \
+        "$pkgdir/etc/skel/.config/fish/conf.d/appsynergy-greeting.fish"
+    fi
+  fi
+
+  # System fish greeter once — only /etc/fish/conf.d (not also $HOME conf.d)
+  if [[ -f "$src/fish/appsynergy-greeting.fish" ]]; then
+    install -Dm644 "$src/fish/appsynergy-greeting.fish" \
+      "$pkgdir/etc/fish/conf.d/appsynergy-greeting.fish"
+  fi
+
+  # hicolor icons — LOGO=appsynergy-linux / start = appsynergy-start
+  # Bracket mark on dark pad — NOT hub-spoke.
+  if [[ -d "$src/icons/hicolor" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/icons/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/icons/$rel"
+    done < <(find "$src/icons/hicolor" -type f -print0)
+  fi
+  # Alias so restored Kickoff configs that still say org.cachyos.hello show our mark
+  if [[ -f "$pkgdir/usr/share/icons/hicolor/scalable/apps/appsynergy-start.svg" ]]; then
+    ln -sfn appsynergy-start.svg \
+      "$pkgdir/usr/share/icons/hicolor/scalable/apps/org.cachyos.hello.svg"
+    for size in 16 22 24 32 48 64 128 256 512; do
+      local d="$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps"
+      if [[ -f "$d/appsynergy-start.png" ]]; then
+        ln -sfn appsynergy-start.png "$d/org.cachyos.hello.png"
+      fi
+    done
+  fi
+  if [[ -f "$src/applications/appsynergy-start.desktop" ]]; then
+    install -Dm644 "$src/applications/appsynergy-start.desktop" \
+      "$pkgdir/usr/share/applications/appsynergy-start.desktop"
+  fi
+
+  # Plymouth theme (wordmark pulse + arc throbber — no hub-spoke)
+  if [[ -d "$src/plymouth/appsynergy" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/plymouth/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/plymouth/themes/$rel"
+    done < <(find "$src/plymouth/appsynergy" -type f -print0)
+  fi
+}
