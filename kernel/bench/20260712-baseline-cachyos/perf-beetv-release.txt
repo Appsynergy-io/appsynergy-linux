@@ -1,0 +1,28 @@
+# started on Sun Jul 12 13:46:23 2026
+
+
+ Performance counter stats for 'cargo build --release -j24':
+
+         186934.46 msec task-clock:u                                                          
+      409991275180      cpu_atom/cycles/u                                                       (35.80%)
+      701263220958      cpu_core/cycles/u                                                       (82.46%)
+      415832375234      cpu_atom/instructions/u                                                 (35.80%)
+      831547628858      cpu_core/instructions/u                                                 (82.46%)
+       81558516922      cpu_atom/branches/u                                                     (35.80%)
+      162902653279      cpu_core/branches/u                                                     (82.46%)
+        5121892366      cpu_atom/branch-misses/u                                                (35.80%)
+        7845447078      cpu_core/branch-misses/u                                                (82.46%)
+        8326806524      cpu_atom/cache-references/u                                             (35.80%)
+       11263796641      cpu_core/cache-references/u                                             (82.46%)
+        1972512755      cpu_atom/cache-misses/u                                                 (35.80%)
+        2820402670      cpu_core/cache-misses/u                                                 (82.46%)
+                 0      context-switches:u                                                    
+                 0      cpu-migrations:u                                                      
+           2628557      page-faults:u                                                         
+
+      78.153641737 seconds time elapsed
+
+     170.431908000 seconds user
+      15.510044000 seconds sys
+
+

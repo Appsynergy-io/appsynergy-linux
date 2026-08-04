@@ -1,0 +1,15 @@
+NAME                                          FSTYPE      TYPE  TRAN   SIZE MOUNTPOINTS
+zram0                                         swap        disk        62.5G [SWAP]
+nvme0n1                                                   disk  nvme 465.8G 
+├─nvme0n1p1                                   vfat        part  nvme     1G /boot
+├─nvme0n1p2                                               part  nvme   128M 
+├─nvme0n1p3                                   ntfs        part  nvme 199.3G 
+├─nvme0n1p4                                   ntfs        part  nvme   739M 
+└─nvme0n1p5                                   crypto_LUKS part  nvme 264.6G 
+  └─luks-11decf4e-5e75-4a9c-ab8f-5e4795b565c9 btrfs       crypt      264.6G /var/tmp
+                                                                            /var/log
+                                                                            /var/cache
+                                                                            /home
+                                                                            /root
+                                                                            /srv
+                                                                            /

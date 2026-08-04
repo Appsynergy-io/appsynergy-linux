@@ -1,0 +1,25 @@
+SUMMARY quickwins-warm 7.1.2-3-cachyos
+### time-check.txt
+wall_sec=10.13 user_sec=25.36 sys_sec=10.51 maxrss_kb=821084
+### time-release.txt
+wall_sec=80.68 user_sec=166.56 sys_sec=12.71 maxrss_kb=1624372
+### sched
+# Running 'sched/messaging' benchmark:
+# 20 sender and receiver processes per group
+# 20 groups == 800 processes run
+
+     Total time: 2.365 [sec]
+### memcpy
+# Running 'mem/memcpy' benchmark:
+# function 'default' (Default memcpy() provided by glibc)
+# Copying 512MB bytes ...
+
+      23.692303 GB/sec
+# function 'x86-64-unrolled' (unrolled memcpy() in arch/x86/lib/memcpy_64.S)
+# Copying 512MB bytes ...
+
+      12.696712 GB/sec
+# function 'x86-64-movsq' (movsq-based memcpy() in arch/x86/lib/memcpy_64.S)
+# Copying 512MB bytes ...
+
+      13.531653 GB/sec
