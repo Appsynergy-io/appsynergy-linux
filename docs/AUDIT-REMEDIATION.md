@@ -20,18 +20,26 @@ External 18-agent audit (2026-08) → three read-only verification sweeps confir
 | U1 installer-trust | #9 | installer installs keyring+mirrorlist, asserts fingerprint, best-effort `pacman -Sy` to prove the signed db (offline installs still succeed); never writes TrustAll; keyring staged on ISO; preflight bail if keyring pkg missing (before any disk touch) |
 | U2 input-validation | #12 | username/hostname/timezone/locale/keymap allowlist-validated at config load; kills `format!`→`bash -c` injection |
 | U3 disk-safety | #14 | explicit disk-source precedence (typed flag wins); `--yes` refuses auto-detected disks; real block-device + partition + live-medium rejection |
-| U4 robustness | **in flight** (`fd277f7`, `dev-07f3e323`) | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
+| U4 robustness | #17 | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
 | U6 gate-lints | #13 | shellcheck discovers every script (incl. extensionless, by shebang); unanchored-glob lint; write-usb removability gate |
 | U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. Kernel built+published; **NUC reboot deferred to maintenance window** |
-| U9 docs+CA | **in flight** | docs teach Required signatures; pre-rename paths fixed; one-secret keyfile model documented honestly; `appsynergy-ca-certificates` 1-3 makes the Root the only anchor, Intermediate neutral-trust chain filler |
-| CI | #10, #11 | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard resource limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
+| U9 docs+CA | #18 | docs teach Required signatures; pre-rename paths fixed (incl. a live `backup-to-usb.sh` bug); one-secret keyfile model documented honestly; `appsynergy-ca-certificates` 1-3 makes the Root the only anchor, Intermediate neutral-trust chain filler |
+| CI | #10, #11, #15 | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
+| gate determinism | #16 | `--mode='a-st'` in `make-srctars.sh` — see below |
 
-## Live-host runbook (executed items)
+## What CI caught on its first run
 
-- R3 trust flip — done before this session (see above).
-- R4' skylake: `br_netfilter` persisted via `/etc/modules-load.d/netguard.conf` (file write only; module already loaded by k3s unit). Tigerlake already had it.
-- R5 skylake: ESP2 (`nvme1n1p1`) diffed against `/boot` and re-synced (precondition: `/boot` matched running kernel).
-- R-VARIANT: live `/etc/os-release` corrected to `VARIANT="Server"` on both (matches U4 behavior for new installs).
+The payload tarballs claimed determinism via `--sort/--mtime/--owner` but never normalized **mode**. A checkout under a Kubernetes volume inherits `g+s` on every directory it creates (`fsGroup` marks the volume root setgid), so the runner archived `2755` directories where the workstation archived `0755`: identical files, identical GNU tar 1.35, different sha256. The gate passed on the workstation and failed only in CI, first on `tarball-sums`, then `makepkg-all`. Fixed by stripping setuid/setgid/sticky from every member; the recorded sums are unchanged, so no PKGBUILD or pkgrel churn. Verified inside the runner pod, whose directories are still `drwxr-sr-x`.
+
+This is the class of defect a workstation-only gate cannot see, and it appeared within minutes of the runner going live.
+
+## Live-host changes (2026-08-06; nothing restarted, nothing rebooted)
+
+- **skylake `br_netfilter` persisted** — appended to `/etc/modules-load.d/appsynergy-server.conf` (not package-owned; backup `.bak-20260806-231143`). Inert: the module was already loaded by the k3s unit's `ExecStartPre`, so this only fixes boot ordering. Tigerlake already persists it via its own `netguard.conf`.
+- **skylake ESP2 — no action needed.** Read-only inspection showed `/dev/nvme1n1p1` already matching `/boot`; the sole difference is `loader/random-seed`, which is per-ESP entropy and must NOT be copied. The ordering defect that caused stale mirrors is real in code and fixed by U4 for future installs.
+- **os-release VARIANT corrected on both hosts** — `/etc/os-release` replaced (symlink → real file) with `VARIANT="Server"` / `VARIANT_ID=server`, matching what U4 now produces for new installs. Backups in `/root`.
+- **CI runner deployed to skylake** — namespace `ci`, registered as `k3s-arch-host`, green on `main`. Existing workloads' restart counts are byte-identical to the pre-deploy baseline; node sat at 18% CPU after a full CI queue drain.
+- Artifact worth knowing: skylake predates the current installer and carries `/etc/appsynergy/VARIANT.txt` (`VARIANT=Server`) where tigerlake and current code use `/etc/appsynergy/VARIANT` (`server`). Both agree with os-release; harmless, not worth a migration.
 
 ## Deferred — maintenance window, owner: operator
 
