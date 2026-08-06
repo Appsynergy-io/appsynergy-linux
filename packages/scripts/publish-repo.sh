@@ -38,14 +38,34 @@ mapfile -t want < <(tar xzOf "$REPO/appsynergy.db.tar.gz" --wildcards '*/desc' 2
   | awk '/^%FILENAME%/{getline; print}')
 ((${#want[@]})) || { echo "db indexes nothing — run build-repo.sh first"; exit 1; }
 
-pkgs=() dbs=()
+pkgs=() dbs=() unsigned=()
 for name in "${want[@]}"; do
   [[ -f "$REPO/$name" ]] || { echo "FAIL: db names a file missing from staging: $name"; exit 1; }
   pkgs+=("$REPO/$name")
   # SigLevel Required makes pacman fetch <pkg>.sig — a package published without
   # its sig hard-fails every client install once signatures are enforced.
-  [[ -f "$REPO/$name.sig" ]] && pkgs+=("$REPO/$name.sig")
+  if [[ -f "$REPO/$name.sig" ]]; then
+    pkgs+=("$REPO/$name.sig")
+  else
+    unsigned+=("$name")
+  fi
 done
+[[ -f "$REPO/appsynergy.db.tar.gz.sig" ]] || unsigned+=("appsynergy.db.tar.gz")
+if ((${#unsigned[@]})); then
+  if [[ "${ALLOW_UNSIGNED:-0}" == "1" ]]; then
+    echo "##############################################################"
+    echo "# WARNING: PUBLISHING UNSIGNED (ALLOW_UNSIGNED=1)"
+    echo "# Missing detached signatures:"
+    printf '#   %s.sig\n' "${unsigned[@]}"
+    echo "# SigLevel Required clients will refuse everything listed."
+    echo "##############################################################"
+  else
+    echo "FAIL: refusing unsigned publish — missing .sig for:"
+    printf '  %s\n' "${unsigned[@]}"
+    echo "Rebuild with SIGN=1 (build-repo.sh default); ALLOW_UNSIGNED=1 overrides."
+    exit 1
+  fi
+fi
 for f in "$REPO"/appsynergy.db* "$REPO"/appsynergy.files*; do
   [[ -f "$f" && "$f" != *.old ]] && dbs+=("$f")
 done
@@ -110,3 +130,7 @@ echo "Public Server line:"
 echo "  Server = $BASE"
 echo "Test:"
 echo "  curl -fsSL $BASE/appsynergy.db -o /dev/null && echo db_ok"
+
+# Publishing is not fire-and-forget: assert production == staging, every time.
+# Last command, so its exit code is the publish exit code.
+"$ROOT/scripts/verify-repo.sh"

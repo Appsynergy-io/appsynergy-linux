@@ -61,6 +61,11 @@ if [[ "${SIGN:-1}" == "1" ]]; then
       echo "    signed $(basename "$f")"
     fi
   done
+else
+  echo "##############################################################"
+  echo "# SIGN=0: staging is UNSIGNED (dev only)."
+  echo "# publish-repo.sh will refuse it; ALLOW_UNSIGNED=1 overrides."
+  echo "##############################################################"
 fi
 
 echo "==> repo-add"
