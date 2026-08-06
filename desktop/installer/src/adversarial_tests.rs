@@ -324,7 +324,7 @@ fn k3s_server_only_no_docker_stack() {
     assert!(src.contains("fn install_k3s"));
     assert!(src.contains("skip k3s (desktop"));
     assert!(
-        src.contains("apparmor k3s fstrim") || src.contains("apparmor k3s "),
+        src.contains("systemctl enable sshd systemd-networkd systemd-resolved nftables k3s"),
         "server must enable k3s"
     );
     assert!(
@@ -675,6 +675,196 @@ fn empty_package_list_after_filter_is_error() {
     // adversarial: only skip packages → empty pacstrap must fail
     // unit-tested via should_skip; integration would need temp file
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding"));
+}
+
+#[test]
+fn server_os_release_replaces_the_workstation_variant() {
+    // The shipped identity package sets VARIANT="Workstation", so the old append
+    // guarded on `!t.contains("VARIANT=")` could never fire: both production servers
+    // reported Workstation while /etc/appsynergy/VARIANT said server.
+    let shipped = include_str!("../../../packages/pkgbuilds/appsynergy-branding/os-release");
+    assert!(shipped.contains("VARIANT=\"Workstation\""), "input premise");
+    let out = disk::rebrand_os_release_server(shipped);
+
+    assert_eq!(
+        out.lines().filter(|l| l.starts_with("VARIANT=")).count(),
+        1,
+        "exactly one VARIANT= line:\n{out}"
+    );
+    assert_eq!(
+        out.lines().filter(|l| l.starts_with("VARIANT_ID=")).count(),
+        1,
+        "exactly one VARIANT_ID= line:\n{out}"
+    );
+    assert!(out.contains("VARIANT=\"Server\"\n"));
+    assert!(out.contains("VARIANT_ID=server\n"));
+    assert!(!out.contains("Workstation"), "no workstation identity survives");
+    // display names become the server ones
+    assert!(out.contains("NAME=\"AppSynergy Server\""));
+    assert!(out.contains("PRETTY_NAME=\"AppSynergy Server\""));
+    // unrelated keys are untouched
+    assert!(out.contains("ID=appsynergy-linux\n"));
+    assert!(out.contains("ID_LIKE=arch\n"));
+    assert!(out.contains("LOGO=appsynergy-linux\n"));
+    assert!(out.contains("HOME_URL=\"https://git.appsynergy.io/imabee\"\n"));
+    // idempotent: re-running over an already-server file changes nothing
+    assert_eq!(disk::rebrand_os_release_server(&out), out);
+
+    // absent keys are appended exactly once
+    let bare = "NAME=\"AppSynergy Linux\"\nID=appsynergy-linux\n";
+    let out = disk::rebrand_os_release_server(bare);
+    assert_eq!(out.lines().filter(|l| l.starts_with("VARIANT=")).count(), 1);
+    assert_eq!(
+        out.lines().filter(|l| l.starts_with("VARIANT_ID=")).count(),
+        1
+    );
+    assert!(out.contains("ID=appsynergy-linux\n"));
+}
+
+#[test]
+fn server_os_release_lands_in_etc_as_a_real_file() {
+    // /usr/lib/os-release is owned by the `filesystem` package, so the rebrand there is
+    // reverted on its next upgrade; only a real /etc/os-release survives.
+    let src = include_str!("main.rs");
+    let start = src
+        .find("fn apply_os_release")
+        .expect("invariant: os-release step exists");
+    let body = &src[start..];
+    let body = &body[..body.find("\nfn ").expect("invariant: function body ends")];
+    let server = body
+        .find("if cfg.variant.is_server() {\n        // `/usr/lib/os-release` is owned")
+        .expect("invariant: server writes /etc/os-release itself");
+    let server = &body[server..];
+    assert!(
+        server.contains("fs::write(&etc, disk::rebrand_os_release_server("),
+        "server must write the rebranded body to /etc/os-release"
+    );
+    assert!(
+        server.contains("fs::remove_file(&etc)"),
+        "the /etc symlink must be removed before writing a real file"
+    );
+    // desktop keeps the symlink
+    assert!(
+        body.contains("std::os::unix::fs::symlink(link_tgt, &etc)"),
+        "desktop path must still symlink /etc/os-release"
+    );
+    assert!(
+        !body.contains("if !t.contains(\"VARIANT=\")"),
+        "the append-only VARIANT guard could never fire and must be gone"
+    );
+}
+
+#[test]
+fn critical_server_services_are_enabled_by_a_hard_call() {
+    // Doubly suppressed before: `|| true` inside the shell AND the warn-only wrapper.
+    // A server that fails to enable sshd/nftables reported a successful install and
+    // came up unreachable or unfirewalled.
+    let src = include_str!("main.rs");
+    assert!(
+        !src.contains("nftables apparmor k3s fstrim.timer || true"),
+        "the doubly-suppressed server enable must be gone"
+    );
+    let start = src
+        .find("fn enable_services")
+        .expect("invariant: service step exists");
+    let body = &src[start..];
+    let body = &body[..body.find("\nfn ").expect("invariant: function body ends")];
+
+    let hit = body
+        .find("systemctl enable sshd")
+        .expect("invariant: server enables the critical set");
+    let end = hit + body[hit..].find(';').expect("invariant: statement ends");
+    let call = body[..end]
+        .rfind("cmd::arch_chroot")
+        .expect("invariant: enables go through cmd");
+    let stmt = &body[call..end];
+    assert!(
+        !stmt.starts_with("cmd::arch_chroot_ok"),
+        "critical enables must not use the warn-only wrapper: {stmt}"
+    );
+    assert!(
+        stmt.contains(")?"),
+        "critical enables must propagate with `?`: {stmt}"
+    );
+    assert!(!stmt.contains("|| true"), "no shell-level suppression: {stmt}");
+    for svc in [
+        "sshd",
+        "systemd-networkd",
+        "systemd-resolved",
+        "nftables",
+        "k3s",
+    ] {
+        assert!(stmt.contains(svc), "{svc} must be in the hard enable: {stmt}");
+    }
+    // apparmor and fstrim.timer stay warn-only, and the desktop set with them.
+    assert!(body.contains("cmd::arch_chroot_ok(&cfg.mnt, \"systemctl enable apparmor fstrim.timer || true\")"));
+    assert!(body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true"));
+}
+
+#[test]
+fn failover_esp_is_resynced_after_the_last_initramfs_write() {
+    // install_bootloader's mirror predates rebuild_initramfs, the TPM re-enrol rebuild
+    // and verify_initrd_unlock's final `mkinitcpio -P`, so the second ESP could hold an
+    // image without the dropbear/ssh-unlock hooks — the one case it exists for.
+    let src = include_str!("main.rs");
+    let try_main = src.find("fn try_main").expect("invariant: pipeline exists");
+    let body = &src[try_main..];
+    let boot = body
+        .find("step(\"bootloader\"")
+        .expect("invariant: bootloader step");
+    let verify = body
+        .find("step(\"initramfs-verify\"")
+        .expect("invariant: unlock verification step");
+    let resync = body
+        .find("step(\"esp-resync\"")
+        .expect("invariant: failover ESP is re-synced");
+    assert!(boot < verify, "bootloader precedes the unlock verification");
+    assert!(
+        verify < resync,
+        "the final ESP sync must come AFTER the unlock verification"
+    );
+    assert!(
+        body[verify..resync].contains("cfg.layout.is_raid1()"),
+        "the re-sync is only meaningful on the dual-disk/RAID1 layout"
+    );
+    // and the verification actually inspects the second ESP's images
+    assert!(
+        src.contains("fn compare_esp_boot_images"),
+        "verification must cover the second ESP's boot images"
+    );
+}
+
+#[test]
+fn esp_comparison_ignores_random_seed_and_catches_stale_images() {
+    // systemd-boot regenerates loader/random-seed per ESP: different content there is
+    // never drift. A stale or missing initramfs is.
+    let base = std::env::temp_dir().join(format!("appsynergy-esp-test-{}", std::process::id()));
+    let (a, b) = (base.join("boot"), base.join("esp2"));
+    std::fs::create_dir_all(&a).expect("invariant: temp dirs");
+    std::fs::create_dir_all(&b).expect("invariant: temp dirs");
+    let write = |d: &Path, n: &str, c: &str| std::fs::write(d.join(n), c).expect("invariant: write");
+
+    write(&a, "vmlinuz-linux-appsynergy-server-skylake", "kernel");
+    write(&b, "vmlinuz-linux-appsynergy-server-skylake", "kernel");
+    write(&a, "initramfs-linux-appsynergy-server-skylake.img", "unlock");
+    write(&b, "initramfs-linux-appsynergy-server-skylake.img", "unlock");
+    write(&a, "random-seed", "seed-a");
+    write(&b, "random-seed", "seed-b");
+    let ok = crate::compare_esp_boot_images(&a, &b).expect("matching images verify");
+    assert_eq!(ok.len(), 2, "only the boot images are compared: {ok:?}");
+
+    // stale initramfs on the failover ESP
+    write(&b, "initramfs-linux-appsynergy-server-skylake.img", "stale");
+    let err = format!("{:#}", crate::compare_esp_boot_images(&a, &b).unwrap_err());
+    assert!(err.contains("differs between the two ESPs"), "{err}");
+
+    // missing image on the failover ESP
+    std::fs::remove_file(b.join("initramfs-linux-appsynergy-server-skylake.img"))
+        .expect("invariant: remove");
+    let err = format!("{:#}", crate::compare_esp_boot_images(&a, &b).unwrap_err());
+    assert!(err.contains("second ESP is missing"), "{err}");
+
+    std::fs::remove_dir_all(&base).ok();
 }
 
 #[test]

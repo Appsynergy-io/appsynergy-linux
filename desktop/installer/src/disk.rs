@@ -213,6 +213,49 @@ pub fn os_release_write_plan() -> (&'static str, &'static str) {
     ("usr/lib/os-release", "../usr/lib/os-release")
 }
 
+/// Server rebrand of an os-release body: server NAME/PRETTY_NAME, and `VARIANT`/
+/// `VARIANT_ID` **replaced** in place (appended only when genuinely absent).
+/// `appsynergy-branding` ships `VARIANT="Workstation"`, so an append guarded on
+/// "no VARIANT= present" never fired and both production servers reported
+/// Workstation while `/etc/appsynergy/VARIANT` said server.
+pub fn rebrand_os_release_server(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 32);
+    let (mut has_variant, mut has_variant_id) = (false, false);
+    for line in text.lines() {
+        match line.split('=').next().unwrap_or("").trim() {
+            "VARIANT" => {
+                if !has_variant {
+                    out.push_str("VARIANT=\"Server\"\n");
+                    has_variant = true;
+                }
+            }
+            "VARIANT_ID" => {
+                if !has_variant_id {
+                    out.push_str("VARIANT_ID=server\n");
+                    has_variant_id = true;
+                }
+            }
+            _ => {
+                out.push_str(&line.replace("AppSynergy Linux", "AppSynergy Server"));
+                out.push('\n');
+            }
+        }
+    }
+    if !has_variant {
+        out.push_str("VARIANT=\"Server\"\n");
+    }
+    if !has_variant_id {
+        out.push_str("VARIANT_ID=server\n");
+    }
+    out
+}
+
+/// Boot images that must be identical on both ESPs. `loader/random-seed` is
+/// regenerated per-ESP by systemd-boot and is never drift.
+pub fn is_boot_image_name(name: &str) -> bool {
+    name.starts_with("vmlinuz-") || name.starts_with("initramfs-")
+}
+
 /// Pacstrap filter: branding/kernel packages must not be pacstrap'd (INSTALL-PROBLEMS #2).
 pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
     matches!(
@@ -381,6 +424,15 @@ mod tests {
         assert_eq!(lib, "usr/lib/os-release");
         assert_eq!(link, "../usr/lib/os-release");
         assert!(!lib.starts_with("etc/"));
+    }
+
+    #[test]
+    fn boot_image_filter_ignores_random_seed() {
+        assert!(is_boot_image_name("vmlinuz-linux-appsynergy-server-skylake"));
+        assert!(is_boot_image_name("initramfs-linux-appsynergy-server-skylake.img"));
+        assert!(!is_boot_image_name("random-seed"));
+        assert!(!is_boot_image_name("loader"));
+        assert!(!is_boot_image_name("intel-ucode.img"));
     }
 
     #[test]
