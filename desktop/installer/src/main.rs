@@ -3,7 +3,8 @@
 //! Variants: **desktop** (Plasma workstation) | **server** (headless tunnels/OVH).
 //! Server dual NVMe: LUKS per disk + btrfs RAID1 (data+metadata).
 //! Fixes from INSTALL-PROBLEMS.md (2026-07-23):
-//! - os-release: write `/usr/lib/os-release` only; symlink `/etc/os-release`
+//! - os-release: write `/usr/lib/os-release` only; `/etc/os-release` is a symlink
+//!   (desktop) or a real file carrying `VARIANT="Server"` (server)
 //! - branding: no pre-seed of package-owned files; `pacman -U --overwrite '*'`
 //! - `--password-file` / `APPSYNERGY_KEYFILE` for LUKS + chpasswd
 //! - `/etc/vconsole.conf` before first mkinitcpio
@@ -151,6 +152,12 @@ fn try_main() -> Result<()> {
     // Must be the LAST initramfs write: kernel-package pacman hooks and TPM
     // enrolment also rebuild it, and whichever runs last wins.
     step("initramfs-verify", || verify_initrd_unlock(&cfg))?;
+    // install_bootloader's mirror predates every later initramfs write (rebuild_initramfs,
+    // the TPM re-enrol rebuild, the verification rebuild), so the failover ESP would hold
+    // an image without the unlock hooks — exactly the case it exists for.
+    if cfg.layout.is_raid1() {
+        step("esp-resync", || resync_esp_mirror(&cfg))?;
+    }
     step("services", || enable_services(&cfg))?;
     step("finalize", || finalize(&cfg))?;
 
@@ -612,6 +619,60 @@ fn sync_esp_mirror(cfg: &Config) -> Result<()> {
     cmd::run("esp-mirror", "umount", &[mnt2])?;
     println!("    mirrored ESP → {}", sec.display());
     Ok(())
+}
+
+/// Re-mirror the failover ESP after the LAST initramfs write, then prove both ESPs
+/// carry the same boot images. Run from `try_main` after `initramfs-verify`.
+fn resync_esp_mirror(cfg: &Config) -> Result<()> {
+    if cfg.layout.members.len() < 2 {
+        return Ok(());
+    }
+    sync_esp_mirror(cfg)?;
+    let sec = &cfg.layout.members[1].efi_part;
+    let mnt2 = "/mnt/appsynergy-esp2";
+    fs::create_dir_all(mnt2)?;
+    cmd::run(
+        "esp-verify",
+        "mount",
+        &["-o", "ro", &sec.to_string_lossy(), mnt2],
+    )?;
+    let checked = compare_esp_boot_images(&cfg.mnt.join("boot"), Path::new(mnt2));
+    cmd::run_ok("esp-verify", "umount", &[mnt2]);
+    let checked = checked.context(
+        "the failover ESP does not match the primary — booting the second disk would \
+         use a stale kernel/initramfs",
+    )?;
+    println!(
+        "    failover ESP verified: {} image(s) identical",
+        checked.len()
+    );
+    Ok(())
+}
+
+/// Compare every `vmlinuz-*` / `initramfs-*` byte-for-byte across the two ESPs and
+/// return the names checked. `loader/random-seed` is deliberately out of scope:
+/// systemd-boot regenerates it per-ESP, so it differs without being drift.
+fn compare_esp_boot_images(primary: &Path, secondary: &Path) -> Result<Vec<String>> {
+    let mut names: Vec<String> = fs::read_dir(primary)
+        .with_context(|| format!("read {}", primary.display()))?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| disk::is_boot_image_name(n))
+        .collect();
+    names.sort();
+    if names.is_empty() {
+        bail!("no vmlinuz-*/initramfs-* under {}", primary.display());
+    }
+    for name in &names {
+        let a = fs::read(primary.join(name))
+            .with_context(|| format!("read {}", primary.join(name).display()))?;
+        let b = fs::read(secondary.join(name))
+            .with_context(|| format!("second ESP is missing {name}"))?;
+        if a != b {
+            bail!("{name} differs between the two ESPs");
+        }
+    }
+    Ok(names)
 }
 
 fn pacstrap_packages(cfg: &Config) -> Result<()> {
@@ -1221,13 +1282,9 @@ fn apply_os_release(cfg: &Config) -> Result<()> {
         // Always write to real file path, never through /etc symlink
         fs::copy(&src, &lib).with_context(|| format!("copy {} -> {}", src.display(), lib.display()))?;
         if cfg.variant.is_server() {
-            // Rebrand PRETTY_NAME for server without a separate package.
-            if let Ok(mut t) = fs::read_to_string(&lib) {
-                t = t.replace("AppSynergy Linux", "AppSynergy Server");
-                if !t.contains("VARIANT=") {
-                    t.push_str("VARIANT=\"Server\"\nVARIANT_ID=server\n");
-                }
-                fs::write(&lib, t)?;
+            // Rebrand names and force VARIANT for server without a separate package.
+            if let Ok(t) = fs::read_to_string(&lib) {
+                fs::write(&lib, disk::rebrand_os_release_server(&t))?;
             }
         }
     } else {
@@ -1260,13 +1317,27 @@ LOGO=appsynergy-linux
         };
         fs::write(&lib, body)?;
     }
-    // Replace /etc/os-release with a relative symlink (Arch convention).
-    if etc.exists() || etc.symlink_metadata().is_ok() {
-        fs::remove_file(&etc).ok();
+    if cfg.variant.is_server() {
+        // `/usr/lib/os-release` is owned by the `filesystem` package (`pacman -Qo`), so a
+        // rebrand there is reverted by its next upgrade; `/etc/os-release` takes precedence
+        // per os-release(5) and is not package-owned — the server VARIANT lives there as a
+        // real file, so the symlink must go first.
+        let body = fs::read_to_string(&lib).with_context(|| format!("read {}", lib.display()))?;
+        if etc.symlink_metadata().is_ok() {
+            fs::remove_file(&etc).ok();
+        }
+        fs::write(&etc, disk::rebrand_os_release_server(&body))
+            .with_context(|| format!("write {}", etc.display()))?;
+        println!("    wrote /{lib_rel}; /etc/os-release real file (VARIANT=Server)");
+    } else {
+        // Replace /etc/os-release with a relative symlink (Arch convention).
+        if etc.exists() || etc.symlink_metadata().is_ok() {
+            fs::remove_file(&etc).ok();
+        }
+        std::os::unix::fs::symlink(link_tgt, &etc)
+            .with_context(|| format!("symlink {}", etc.display()))?;
+        println!("    wrote /{lib_rel}; /etc/os-release -> {link_tgt}");
     }
-    std::os::unix::fs::symlink(link_tgt, &etc)
-        .with_context(|| format!("symlink {}", etc.display()))?;
-    println!("    wrote /{lib_rel}; /etc/os-release -> {link_tgt}");
     Ok(())
 }
 
@@ -1945,11 +2016,16 @@ fn enable_services(cfg: &Config) -> Result<()> {
          systemctl mask docker.service docker.socket containerd.service 2>/dev/null || true",
     );
     if cfg.variant.is_server() {
+        // Fatal on a headless box — reachability, network, DNS, perimeter, workload
+        // runtime: a host that boots without any one of these is unreachable, unrouted
+        // or unfirewalled, and a warn-only enable reports that install as successful.
         // Server containers: k3s only.
-        cmd::arch_chroot_ok(
+        cmd::arch_chroot(
             &cfg.mnt,
-            "systemctl enable sshd systemd-networkd systemd-resolved nftables apparmor k3s fstrim.timer || true",
-        );
+            "systemctl enable sshd systemd-networkd systemd-resolved nftables k3s",
+        )?;
+        // Degrade-only: confinement and periodic trim never strand the host.
+        cmd::arch_chroot_ok(&cfg.mnt, "systemctl enable apparmor fstrim.timer || true");
         cmd::arch_chroot_ok(
             &cfg.mnt,
             r#"ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf || true"#,
