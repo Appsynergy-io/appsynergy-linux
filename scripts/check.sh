@@ -80,4 +80,21 @@ pin_check() {
 }
 stage kernel-pin pin_check
 
+# 7. Both server fragments keep the k3s bridge-netfilter pair. physdev is a
+#    separate symbol that `depends on BRIDGE_NETFILTER`, and losing it fails
+#    open: kube-router aborts every sync, so the apiserver accepts a
+#    NetworkPolicy and nothing is programmed. Fragments only — a shipped
+#    kernel/upstream/config-* legitimately lags until the next rebuild.
+fragment_netfilter() {
+  local f p
+  for f in server-skylake server-tigerlake; do
+    p="$ROOT/kernel/configs/$f.fragment"
+    grep -qE '^CONFIG_BRIDGE_NETFILTER=[my]$' "$p" ||
+      { echo "$f.fragment: missing CONFIG_BRIDGE_NETFILTER=m"; return 1; }
+    grep -qE '^CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m$' "$p" ||
+      { echo "$f.fragment: missing CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m"; return 1; }
+  done
+}
+stage kernel-netfilter fragment_netfilter
+
 exit $fail

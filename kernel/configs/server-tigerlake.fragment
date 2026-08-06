@@ -180,7 +180,7 @@ CONFIG_IPV6_GRE=m
 CONFIG_NET_IPIP=m
 CONFIG_NET_IPGRE_DEMUX=m
 CONFIG_BRIDGE=m
-# Built in, not a module: the k3s site's LAN perimeter is a host nftables
+# Required, not optional: the k3s site's LAN perimeter is a host nftables
 # ruleset on the `forward` hook (nuc-k3s network/netguard.nft, rendered from
 # apps/exposure-lab.toml). Multus puts each public workload's veth on br-pub
 # with the uplink enslaved, so LAN → Pod traffic is *bridged*; without
@@ -192,15 +192,21 @@ CONFIG_BRIDGE=m
 # a Service VIP reply that is bridged peer-to-peer is never un-DNATed and the
 # client discards it. Keep masquerade-all until that is re-measured here.
 #
-# Requested as =y; Kconfig resolves it to =m because CONFIG_BRIDGE=m above and
-# a symbol cannot be built in when its dependency is modular. That is fine, but
-# it means the perimeter now depends on the module being loaded: nftables will
-# accept the ruleset whether or not br_netfilter is present, and silently
-# filter nothing until it is. scripts/modules-load-server.conf loads only
-# nf_conntrack and nf_tables, so nuc-k3s ships its own modules-load.d and
-# sysctl.d drop-ins and install-netguard.sh refuses without them.
+# =m, not =y: a symbol cannot be built in while its dependency CONFIG_BRIDGE is
+# modular, so Kconfig resolves =y to =m anyway. That is fine, but it means the
+# perimeter depends on the module being loaded: nftables will accept the ruleset
+# whether or not br_netfilter is present, and silently filter nothing until it
+# is. modules-load-server.conf loads it on new installs; nuc-k3s also ships its
+# own modules-load.d and sysctl.d drop-ins and install-netguard.sh refuses
+# without them.
 # Set CONFIG_BRIDGE=y as well if you ever want this genuinely built in.
-CONFIG_BRIDGE_NETFILTER=y
+CONFIG_BRIDGE_NETFILTER=m
+# `depends on BRIDGE && BRIDGE_NETFILTER`, and does not follow from the line
+# above — it is a separate symbol. k3s's kube-router aborts every NetworkPolicy
+# sync without it ("Extension physdev revision 0 not supported"): objects
+# accepted, nothing programmed. Measured 2026-08-06, this metal on a kernel
+# built before this line: 8 KUBE-NWPLCY chains against skylake's 93.
+CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m
 # Conntrack for bridged frames — `ct state established,related accept` in the
 # guard is meaningless without it.
 CONFIG_NF_CONNTRACK_BRIDGE=m
