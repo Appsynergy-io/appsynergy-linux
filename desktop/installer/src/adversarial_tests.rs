@@ -1,7 +1,253 @@
 //! Adversarial tests for appsynergy-install.
 //! Covers dual-NVMe RAID1 layout + INSTALL-PROBLEMS.md failure modes.
 
+use crate::config::{self, DiskSource};
 use crate::disk;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// Env map builder for the resolver tests: `env(&[("APPSYNERGY_DISKS", "/dev/a")])`.
+fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+fn paths(list: &[&str]) -> Vec<PathBuf> {
+    list.iter().map(PathBuf::from).collect()
+}
+
+#[test]
+fn disk_flags_carry_no_clap_env_binding() {
+    // A clap `env =` value is indistinguishable from a typed one, so the resolver
+    // could not rank them. The two disk args must reach it as flags only.
+    use clap::CommandFactory;
+    let cmd = crate::config::Cli::command();
+    for id in ["disk", "disks"] {
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id() == id)
+            .expect("invariant: disk args exist");
+        assert!(
+            arg.get_env().is_none(),
+            "--{id} must not be clap-bound to an env var"
+        );
+    }
+    // Non-destructive args keep theirs.
+    assert!(cmd
+        .get_arguments()
+        .find(|a| a.get_id() == "hostname")
+        .expect("invariant: hostname arg exists")
+        .get_env()
+        .is_some());
+}
+
+#[test]
+fn typed_disk_flag_beats_exported_disks_env() {
+    // The wrong-disk wipe: `export APPSYNERGY_DISKS=…` in a shell profile used to
+    // win over the disk the operator typed on the command line.
+    let (disks, src) = config::resolve_disks_from(
+        None,
+        Some(Path::new("/dev/sda")),
+        &env(&[("APPSYNERGY_DISKS", "/dev/nvme0n1,/dev/nvme1n1")]),
+        &env(&[("APPSYNERGY_DISKS", "/dev/vda")]),
+        &paths(&["/dev/detected0"]),
+    )
+    .unwrap();
+    assert_eq!(disks, paths(&["/dev/sda"]));
+    assert_eq!(src, DiskSource::CliDisk);
+}
+
+#[test]
+fn disk_source_precedence_is_flags_then_proc_env_then_file_then_detection() {
+    let proc = env(&[("APPSYNERGY_DISKS", "/dev/proc0")]);
+    let file = env(&[("APPSYNERGY_DISKS", "/dev/file0")]);
+    let detected = paths(&["/dev/detected0"]);
+
+    // --disks beats --disk
+    let (d, s) = config::resolve_disks_from(
+        Some("/dev/nvme0n1,/dev/nvme1n1"),
+        Some(Path::new("/dev/sda")),
+        &proc,
+        &file,
+        &detected,
+    )
+    .unwrap();
+    assert_eq!(d, paths(&["/dev/nvme0n1", "/dev/nvme1n1"]));
+    assert_eq!(s, DiskSource::CliDisks);
+
+    // process env beats machine.env
+    let (d, s) = config::resolve_disks_from(None, None, &proc, &file, &detected).unwrap();
+    assert_eq!(d, paths(&["/dev/proc0"]));
+    assert_eq!(s, DiskSource::ProcEnv);
+
+    // machine.env beats detection
+    let (d, s) =
+        config::resolve_disks_from(None, None, &env(&[]), &file, &detected).unwrap();
+    assert_eq!(d, paths(&["/dev/file0"]));
+    assert_eq!(s, DiskSource::FileEnv);
+
+    // detection is last
+    let (d, s) =
+        config::resolve_disks_from(None, None, &env(&[]), &env(&[]), &detected).unwrap();
+    assert_eq!(d, detected);
+    assert_eq!(s, DiskSource::Detected);
+
+    // an empty value is no value — it must not shadow the source below it
+    let (_, s) = config::resolve_disks_from(
+        None,
+        None,
+        &env(&[("APPSYNERGY_DISKS", "  ")]),
+        &file,
+        &detected,
+    )
+    .unwrap();
+    assert_eq!(s, DiskSource::FileEnv);
+
+    // APPSYNERGY_DISKS outranks APPSYNERGY_DISK within one source
+    let (d, _) = config::resolve_disks_from(
+        None,
+        None,
+        &env(&[("APPSYNERGY_DISKS", "/dev/a"), ("APPSYNERGY_DISK", "/dev/b")]),
+        &env(&[]),
+        &detected,
+    )
+    .unwrap();
+    assert_eq!(d, paths(&["/dev/a"]));
+}
+
+#[test]
+fn batch_mode_refuses_auto_detected_disks_only() {
+    // --yes skips confirm() and the wizard's NUKE gate, so nothing would ever
+    // confirm a guess. A baked appliance image (machine.env) must keep working.
+    let d = paths(&["/dev/nvme0n1"]);
+    let err = config::check_batch_disks(true, DiskSource::Detected, &d).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("--yes requires an explicit"), "{msg}");
+    assert!(msg.contains("/dev/nvme0n1"), "message must name the target: {msg}");
+
+    for src in [
+        DiskSource::CliDisks,
+        DiskSource::CliDisk,
+        DiskSource::ProcEnv,
+        DiskSource::FileEnv,
+    ] {
+        assert!(config::check_batch_disks(true, src, &d).is_ok(), "{src:?}");
+    }
+    // Interactive runs still reach the confirm prompts with a detected disk.
+    assert!(config::check_batch_disks(false, DiskSource::Detected, &d).is_ok());
+}
+
+#[test]
+fn disk_flag_with_comma_names_the_right_flag() {
+    // Previously survived load and died at the preflight as
+    // "not a block device: /dev/a,/dev/b".
+    let err = config::resolve_disks_from(
+        None,
+        Some(Path::new("/dev/nvme0n1,/dev/nvme1n1")),
+        &env(&[]),
+        &env(&[]),
+        &paths(&["/dev/detected0"]),
+    )
+    .unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("use --disks for multiple disks"), "{msg}");
+    // and the same value through --disks is fine
+    assert!(config::resolve_disks_from(
+        Some("/dev/nvme0n1,/dev/nvme1n1"),
+        None,
+        &env(&[]),
+        &env(&[]),
+        &[]
+    )
+    .is_ok());
+}
+
+#[test]
+fn single_disk_value_keeps_the_dev_prefix_rule() {
+    assert!(config::resolve_disks_from(
+        None,
+        Some(Path::new("sda")),
+        &env(&[]),
+        &env(&[]),
+        &[]
+    )
+    .is_err());
+}
+
+#[test]
+fn partition_names_are_rejected_as_install_targets() {
+    for part in ["nvme0n1p2", "sda1", "mmcblk0p1", "vdb3", "loop0p1"] {
+        assert!(disk::is_partition_name(part), "{part} is a partition");
+    }
+    for whole in ["nvme0n1", "sda", "loop0", "mmcblk0", "vda", "sr0", "md0"] {
+        assert!(!disk::is_partition_name(whole), "{whole} is a whole device");
+    }
+}
+
+#[test]
+fn live_medium_device_is_the_boot_mount_not_the_squashfs_loop() {
+    // Realistic archiso /proc/self/mounts: the USB is at /run/archiso/bootmnt;
+    // the loop devices there are the squashfs images.
+    let mounts = "\
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+sys /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=8109140k,nr_inodes=2027285,mode=755 0 0
+run /run tmpfs rw,nosuid,nodev,relatime,mode=755 0 0
+/dev/sdb1 /run/archiso/bootmnt vfat ro,relatime,fmask=0022,dmask=0022,codepage=437 0 0
+cowspace /run/archiso/cowspace tmpfs rw,relatime,size=4194304k,mode=755 0 0
+/dev/loop0 /run/archiso/airootfs squashfs ro,relatime 0 0
+airootfs / overlay rw,relatime,lowerdir=/run/archiso/airootfs 0 0
+";
+    assert_eq!(
+        disk::live_medium_device(mounts).as_deref(),
+        Some("sdb1"),
+        "the live medium is the bootmnt device"
+    );
+    // Optical boot and loop-only boot media.
+    assert_eq!(
+        disk::live_medium_device("/dev/sr0 /run/archiso/bootmnt iso9660 ro 0 0\n").as_deref(),
+        Some("sr0")
+    );
+    assert_eq!(
+        disk::live_medium_device("/dev/loop1 /run/archiso/bootmnt squashfs ro 0 0\n"),
+        None
+    );
+    // Installed system: no bootmnt, no live medium.
+    assert_eq!(
+        disk::live_medium_device("/dev/nvme0n1p2 / btrfs rw,relatime 0 0\n"),
+        None
+    );
+    assert_eq!(disk::live_medium_device(""), None);
+}
+
+#[test]
+fn preflight_tests_a_real_block_device_not_just_existence() {
+    // /dev/zero exists and is a character device; the old check accepted it.
+    let src = include_str!("main.rs");
+    let start = src
+        .find("fn validate_target_disks")
+        .expect("invariant: preflight validates targets");
+    let body = &src[start..];
+    let body = &body[..body.find("\nfn ").expect("invariant: function body ends")];
+    assert!(
+        body.contains("is_block_device()"),
+        "preflight must test the file type, not just Path::exists"
+    );
+    assert!(
+        body.contains("/sys/class/block/{name}/partition"),
+        "preflight must reject partitions via sysfs"
+    );
+    assert!(
+        body.contains("live medium"),
+        "preflight must reject the live medium"
+    );
+    assert!(
+        !src.contains("if !m.disk.exists() {"),
+        "the existence-only preflight must be gone"
+    );
+}
 
 #[test]
 fn install_problems_os_release_never_double_cp_etc() {

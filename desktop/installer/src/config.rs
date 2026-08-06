@@ -98,12 +98,14 @@ pub struct Cli {
     pub variant: Option<Variant>,
 
     /// Single target disk (desktop default; server if only one disk).
-    #[arg(long, env = "APPSYNERGY_DISK")]
+    /// No clap `env =`: APPSYNERGY_DISK is read in `resolve_disks_from`, below a
+    /// typed flag. A clap env binding is indistinguishable from a typed value.
+    #[arg(long)]
     pub disk: Option<PathBuf>,
 
     /// Comma-separated disks for dual NVMe RAID1 (server). Env: APPSYNERGY_DISKS.
     /// Example: /dev/nvme0n1,/dev/nvme1n1
-    #[arg(long, env = "APPSYNERGY_DISKS")]
+    #[arg(long)]
     pub disks: Option<String>,
 
     #[arg(long, env = "APPSYNERGY_KERNEL", value_enum)]
@@ -140,6 +142,8 @@ pub struct Config {
     pub layout: DiskLayout,
     /// Primary disk (layout.members[0].disk) — convenience.
     pub disk: PathBuf,
+    /// Which source named the disks; shown in the banner before the wipe.
+    pub disk_source: DiskSource,
     pub efi_part: PathBuf,
     pub luks_part: PathBuf,
     pub cryptname: String,
@@ -182,7 +186,14 @@ impl Config {
             }
         }
 
-        let disks = resolve_disks(&cli, &env, variant)?;
+        let (disks, disk_source) = resolve_disks_from(
+            cli.disks.as_deref(),
+            cli.disk.as_deref(),
+            &proc_disk_env(),
+            &env,
+            &detect_disks(variant),
+        )?;
+        check_batch_disks(cli.yes, disk_source, &disks)?;
         let efi_size = env
             .get("APPSYNERGY_EFI_SIZE")
             .cloned()
@@ -348,6 +359,7 @@ impl Config {
         Ok(Self {
             variant,
             disk: primary.disk.clone(),
+            disk_source,
             efi_part: primary.efi_part.clone(),
             luks_part: primary.luks_part.clone(),
             cryptname: primary.cryptname.clone(),
@@ -372,60 +384,126 @@ impl Config {
     }
 }
 
-fn resolve_disks(
-    cli: &Cli,
-    env: &HashMap<String, String>,
-    variant: Variant,
-) -> Result<Vec<PathBuf>> {
-    // Precedence: explicit CLI first, then the machine env file, then detection.
-    // The env file MUST NOT outrank an argument the operator typed — otherwise
-    // `--disk /dev/sda` silently targets whatever APPSYNERGY_DISKS names, which
-    // on unfamiliar hardware means wiping the wrong devices.
-    if let Some(ref list) = cli.disks {
-        return disk::parse_disks_list(list);
+/// Where the target disk list came from. Declared in precedence order, highest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiskSource {
+    CliDisks,
+    CliDisk,
+    ProcEnv,
+    FileEnv,
+    Detected,
+}
+
+impl DiskSource {
+    /// True when a human or an image baked the value in. Detection is a guess about
+    /// unfamiliar hardware, so it is the one source batch mode refuses.
+    pub fn is_explicit(self) -> bool {
+        !matches!(self, DiskSource::Detected)
     }
-    if let Some(ref one) = cli.disk {
-        return Ok(vec![one.clone()]);
-    }
-    if let Some(list) = env.get("APPSYNERGY_DISKS") {
-        if !list.trim().is_empty() {
-            return disk::parse_disks_list(list);
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DiskSource::CliDisks => "--disks",
+            DiskSource::CliDisk => "--disk",
+            DiskSource::ProcEnv => "process environment",
+            DiskSource::FileEnv => "machine.env",
+            DiskSource::Detected => "auto-detected",
         }
     }
-    let one = env
-        .get("APPSYNERGY_DISK")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            if variant.is_server() {
-                // Prefer dual NVMe names if both exist at load time
-                let a = PathBuf::from("/dev/nvme0n1");
-                let b = PathBuf::from("/dev/nvme1n1");
-                if a.exists() && b.exists() {
-                    return a; // dual filled below
-                }
-                if a.exists() {
-                    return a;
-                }
-                PathBuf::from("/dev/sda")
-            } else {
-                PathBuf::from("/dev/nvme0n1")
-            }
-        });
+}
 
-    // Server auto dual if both Intel-style DC NVMe present and no explicit disk-only override
-    if variant.is_server()
-        && cli.disk.is_none()
-        && env.get("APPSYNERGY_DISKS").is_none()
-        && Path::new("/dev/nvme0n1").exists()
-        && Path::new("/dev/nvme1n1").exists()
-    {
-        return Ok(vec![
-            PathBuf::from("/dev/nvme0n1"),
-            PathBuf::from("/dev/nvme1n1"),
-        ]);
+/// Resolve targets and their provenance. Precedence, highest first:
+/// `--disks` > `--disk` > process env > machine.env > detection.
+/// A typed flag MUST outrank every environment source — otherwise an exported
+/// `APPSYNERGY_DISKS` silently redirects `--disk /dev/sda`, which on unfamiliar
+/// hardware means wiping the wrong devices.
+pub fn resolve_disks_from(
+    cli_disks: Option<&str>,
+    cli_disk: Option<&Path>,
+    proc_env: &HashMap<String, String>,
+    file_env: &HashMap<String, String>,
+    detected: &[PathBuf],
+) -> Result<(Vec<PathBuf>, DiskSource)> {
+    if let Some(list) = cli_disks {
+        return Ok((disk::parse_disks_list(list)?, DiskSource::CliDisks));
     }
+    if let Some(one) = cli_disk {
+        return Ok((vec![single_disk(&one.to_string_lossy())?], DiskSource::CliDisk));
+    }
+    for (env, source) in [
+        (proc_env, DiskSource::ProcEnv),
+        (file_env, DiskSource::FileEnv),
+    ] {
+        if let Some(list) = non_empty(env.get("APPSYNERGY_DISKS")) {
+            return Ok((disk::parse_disks_list(list)?, source));
+        }
+        if let Some(one) = non_empty(env.get("APPSYNERGY_DISK")) {
+            return Ok((vec![single_disk(one)?], source));
+        }
+    }
+    if detected.is_empty() {
+        bail!("no target disk found; pass --disks /dev/a,/dev/b or --disk /dev/a");
+    }
+    Ok((detected.to_vec(), DiskSource::Detected))
+}
 
-    Ok(vec![one])
+fn non_empty(v: Option<&String>) -> Option<&str> {
+    v.map(|s| s.trim()).filter(|s| !s.is_empty())
+}
+
+/// One disk path. A comma here is an operator reaching for the wrong flag; caught at
+/// load rather than as "not a block device: /dev/a,/dev/b" after the preflight.
+fn single_disk(value: &str) -> Result<PathBuf> {
+    if value.contains(',') {
+        bail!("--disk takes one disk, got `{value}`: use --disks for multiple disks");
+    }
+    if !value.starts_with("/dev/") {
+        bail!("disk path must start with /dev/: {value}");
+    }
+    Ok(PathBuf::from(value))
+}
+
+/// `--yes` skips every interactive gate, so under batch mode a detected disk list is
+/// never confirmed by anyone. Machine.env counts as explicit: that is the baked
+/// appliance image, where the disks were chosen when the image was built.
+pub fn check_batch_disks(yes: bool, source: DiskSource, disks: &[PathBuf]) -> Result<()> {
+    if yes && !source.is_explicit() {
+        let names = disks
+            .iter()
+            .map(|d| d.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        bail!(
+            "--yes requires an explicit --disks/--disk (or APPSYNERGY_DISKS); \
+             refusing to wipe auto-detected {names} unconfirmed"
+        );
+    }
+    Ok(())
+}
+
+/// The two disk variables from the process environment, read here rather than bound
+/// by clap so they rank below a typed flag.
+fn proc_disk_env() -> HashMap<String, String> {
+    ["APPSYNERGY_DISKS", "APPSYNERGY_DISK"]
+        .into_iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .collect()
+}
+
+/// Last resort: the disks that exist right now. Server takes both NVMe as RAID1.
+fn detect_disks(variant: Variant) -> Vec<PathBuf> {
+    let nvme0 = PathBuf::from("/dev/nvme0n1");
+    let nvme1 = PathBuf::from("/dev/nvme1n1");
+    if !variant.is_server() {
+        return vec![nvme0];
+    }
+    if nvme0.exists() && nvme1.exists() {
+        return vec![nvme0, nvme1];
+    }
+    if nvme0.exists() {
+        return vec![nvme0];
+    }
+    vec![PathBuf::from("/dev/sda")]
 }
 
 fn parse_variant(s: &str) -> Variant {

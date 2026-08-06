@@ -27,6 +27,7 @@ use config::{Cli, Config, KernelMode, Variant};
 use detect::KernelSelection;
 use std::fs;
 use std::io::{self, Write};
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -91,11 +92,8 @@ fn try_main() -> Result<()> {
             eprintln!("WARN: systemd-cryptenroll missing — TPM step will skip");
         }
     }
-    for m in &cfg.layout.members {
-        if !m.disk.exists() {
-            bail!("not a block device: {}", m.disk.display());
-        }
-    }
+    let targets: Vec<PathBuf> = cfg.layout.members.iter().map(|m| m.disk.clone()).collect();
+    validate_target_disks(&targets)?;
     if !cfg.pkgs_file.is_file() {
         bail!("missing package list: {}", cfg.pkgs_file.display());
     }
@@ -223,6 +221,7 @@ fn banner(cfg: &Config) {
             m.cryptname
         );
     }
+    println!("  disks from: {}", cfg.disk_source.label());
     if cfg.layout.is_raid1() {
         println!("  btrfs:      RAID1 data+metadata  label={}", cfg.layout.label);
     } else {
@@ -303,6 +302,63 @@ fn banner(cfg: &Config) {
         ],
     );
     println!();
+}
+
+/// Every target must be a whole block device that is not the live medium.
+/// `Path::exists()` alone accepts a partition, a character device like /dev/zero,
+/// and the USB this installer booted from — all of which the next step would wipe.
+fn validate_target_disks(disks: &[PathBuf]) -> Result<()> {
+    let live = live_medium_disk();
+    for p in disks {
+        let shown = p.display();
+        let s = p.to_string_lossy();
+        if !s.starts_with("/dev/") {
+            bail!("{shown}: target must be a device path under /dev/");
+        }
+        let meta = fs::metadata(p)
+            .with_context(|| format!("{shown}: cannot stat target — no such device"))?;
+        if !meta.file_type().is_block_device() {
+            bail!("{shown}: not a block device");
+        }
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .with_context(|| format!("{shown}: target has no device name"))?;
+        if Path::new(&format!("/sys/class/block/{name}/partition")).exists()
+            || disk::is_partition_name(name)
+        {
+            bail!("{shown}: is a partition, not a whole disk — pass the parent disk");
+        }
+        if live.as_deref() == Some(name) {
+            bail!("{shown}: is the live medium this installer booted from");
+        }
+    }
+    Ok(())
+}
+
+/// Device name of the whole disk backing the live medium, when booted from the ISO.
+fn live_medium_disk() -> Option<String> {
+    if !Path::new("/run/archiso").exists() {
+        return None;
+    }
+    let mounts = fs::read_to_string("/proc/self/mounts").ok()?;
+    Some(parent_disk_name(&disk::live_medium_device(&mounts)?))
+}
+
+/// `sdb1` → `sdb`: /sys/class/block/<part> resolves under its parent disk's directory.
+fn parent_disk_name(name: &str) -> String {
+    let link = Path::new("/sys/class/block").join(name);
+    if !link.join("partition").exists() {
+        return name.to_string();
+    }
+    fs::canonicalize(&link)
+        .ok()
+        .and_then(|p| {
+            p.parent()
+                .and_then(|d| d.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| name.to_string())
 }
 
 fn confirm(cfg: &Config) -> Result<()> {
