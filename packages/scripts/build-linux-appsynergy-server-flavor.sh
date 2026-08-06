@@ -92,8 +92,8 @@ echo "==> _processor_opt=$_processor_opt  (must NOT be empty/native)"
 
 cp -a "$CFG_SRC" "$KDIR/config"
 
-if [[ -d src/cachyos-* ]]; then
-  TREE=$(ls -1d src/cachyos-* 2>/dev/null | head -1)
+TREE=$(find src -maxdepth 1 -type d -name 'cachyos-*' 2>/dev/null | head -1)
+if [[ -n $TREE ]]; then
   if [[ -x $TREE/scripts/kconfig/merge_config.sh ]]; then
     echo "==> Merging fragment via $TREE/scripts/kconfig/merge_config.sh"
     (cd "$TREE" && ./scripts/kconfig/merge_config.sh -m ../../config "$FRAG" && cp -a .config ../../config)
