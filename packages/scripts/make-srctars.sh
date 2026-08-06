@@ -16,7 +16,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mktar() {
   local dir="$1" out="$2"; shift 2
   # repo-root LICENSE rides at tar root so every package can install it
-  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+  #
+  # --mode='a-st' is load-bearing, not tidiness: sort/mtime/owner alone leave the
+  # setgid bit in the header, and a checkout under a Kubernetes volume inherits
+  # g+s on every directory it creates (fsGroup marks the volume root setgid). The
+  # CI runner therefore produced 2755 dirs where the workstation produced 0755 —
+  # same files, same tar 1.35, different sha256, and the gate failed only in CI.
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode='a-st' \
       -cf "$ROOT/pkgbuilds/$dir/$out" -C "$ROOT/.." LICENSE -C "$ROOT/pkgbuilds/$dir" "$@"
   printf '  %s  %s\n' "$(sha256sum "$ROOT/pkgbuilds/$dir/$out" | cut -d' ' -f1)" "$dir/$out"
 }
