@@ -13,13 +13,22 @@ stage() { # name cmd...
   fi
 }
 
-# 1. Shell lint — release-critical scripts only (bench/backup host tools excluded)
-stage shellcheck shellcheck -S error \
-  "$ROOT"/packages/scripts/*.sh \
-  "$ROOT"/scripts/check.sh \
-  "$ROOT"/desktop/scripts/build-iso.sh \
-  "$ROOT"/desktop/scripts/run-iso-build.sh \
-  "$ROOT"/desktop/scripts/stage-rescue-payload.sh
+# 1. Shell lint — every shell script under the four script trees, discovered not
+#    listed: a hand-maintained list silently omitted rescue-install.sh and
+#    write-usb.sh, the two most destructive scripts in the repo. Discovery means
+#    a new script is linted the day it lands. Extensionless PATH shims count.
+shell_lint() {
+  local f
+  local -a scripts=()
+  while IFS= read -r f; do
+    [[ "$f" == *.sh ]] || head -c 64 "$f" | grep -qE '^#!.*\b(ba)?sh\b' || continue
+    scripts+=("$f")
+  done < <(find "$ROOT/desktop/scripts" "$ROOT/packages/scripts" "$ROOT/scripts" \
+                "$ROOT/ci" -type f | sort)
+  ((${#scripts[@]})) || { echo "no shell scripts found — bad discovery paths"; return 1; }
+  shellcheck -S error "${scripts[@]}"
+}
+stage shellcheck shell_lint
 
 # 2. Installer tests
 stage cargo-test bash -c "cd '$ROOT/desktop/installer' && cargo test --locked"
@@ -96,5 +105,20 @@ fragment_netfilter() {
   done
 }
 stage kernel-netfilter fragment_netfilter
+
+# 8. Branding globs stay version-anchored. "appsynergy-branding-*" also matches
+#    "appsynergy-branding-desktop-*": unanchored, it ships Plasma assets to
+#    servers and makes the ISO prune delete the identity package. Code only —
+#    comment lines quote the forbidden form to explain it.
+branding_glob_anchor() {
+  local hits
+  hits=$(grep -rnE 'appsynergy-branding-(desktop-)?\*' \
+           "$ROOT/desktop/scripts" "$ROOT/packages/scripts" |
+         grep -vE '^[^:]+:[0-9]+:[[:space:]]*#')
+  [[ -z "$hits" ]] || {
+    echo "unanchored branding glob — use appsynergy-branding[-desktop]-[0-9]*:"
+    echo "$hits"; return 1; }
+}
+stage branding-glob branding_glob_anchor
 
 exit $fail
