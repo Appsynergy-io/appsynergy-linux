@@ -7,6 +7,18 @@ KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 OUT_REPO="${OUT_REPO:-$(cd "$(dirname "$0")/.." && pwd)/repo/x86_64}"
 CFG_SRC="${CFG_SRC:-}"
 
+# Pin assert — same contract as build-linux-appsynergy-server-flavor.sh.
+PIN_FILE="$(cd "$(dirname "$0")/../.." && pwd)/kernel/upstream/PIN"
+if [[ -f $PIN_FILE ]]; then
+  want_commit=$(sed -n 's/^UPSTREAM_COMMIT=//p' "$PIN_FILE")
+  have_commit=$(git -C "$KDIR" rev-parse --short HEAD 2>/dev/null || echo unknown)
+  if [[ "$have_commit" != "$want_commit" ]]; then
+    echo "PIN MISMATCH: KDIR at $have_commit, pin says $want_commit ($PIN_FILE)"
+    [[ "${PIN_OVERRIDE:-0}" == "1" ]] || { echo "set PIN_OVERRIDE=1 to build anyway, then update the pin"; exit 1; }
+    echo "PIN_OVERRIDE=1 — building unpinned"
+  fi
+fi
+
 cd "$KDIR"
 
 # Prefer the last known-good igpu config

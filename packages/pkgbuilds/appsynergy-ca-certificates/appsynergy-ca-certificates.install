@@ -1,0 +1,11 @@
+post_install() {
+  update-ca-trust
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_remove() {
+  update-ca-trust
+}

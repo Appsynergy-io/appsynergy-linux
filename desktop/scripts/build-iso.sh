@@ -39,7 +39,8 @@ file "$INSTALLER_BIN"
 "$INSTALLER_BIN" --help | head -5 || true
 
 # Refresh local packages into profile (kernel, branding, browsers)
-SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
+# Kernel build tree (host-local; see kernel/upstream/PIN for what it must contain)
+SRC_PKG="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 PKG_REPO="$MONO/packages/repo/x86_64"
 # pacman.conf cannot express a relative path, so its [appsynergy] Server is
 # absolute. Fail loudly if it drifts from PKG_REPO — a stale path silently
@@ -88,12 +89,14 @@ declare -A PKG_GLOB=(
   [appsynergy-branding-desktop]='appsynergy-branding-desktop-[0-9]*.pkg.tar.zst'
   [appsynergy-wallpapers]='appsynergy-wallpapers-[0-9]*.pkg.tar.zst'
   [appsynergy-mirrorlist]='appsynergy-mirrorlist-[0-9]*.pkg.tar.zst'
+  [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
 )
 for src in "$PKG_REPO" \
            "$MONO/packages/pkgbuilds/appsynergy-branding" \
            "$MONO/packages/pkgbuilds/appsynergy-branding-desktop" \
            "$MONO/packages/pkgbuilds/appsynergy-wallpapers" \
-           "$MONO/packages/pkgbuilds/appsynergy-mirrorlist"; do
+           "$MONO/packages/pkgbuilds/appsynergy-mirrorlist" \
+           "$MONO/packages/pkgbuilds/appsynergy-ca-certificates"; do
   for base in "${!PKG_GLOB[@]}"; do
     if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
       cp -a "$src"/${PKG_GLOB[$base]} "$DST_PKG/" 2>/dev/null || true

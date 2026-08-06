@@ -1,0 +1,11 @@
+post_install() {
+  # Populate only when pacman-key is initialised (it is on any installed system;
+  # in a chroot before pacman-key --init this defers to the installer's step).
+  if [[ -f /etc/pacman.d/gnupg/trustdb.gpg ]]; then
+    pacman-key --populate appsynergy
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

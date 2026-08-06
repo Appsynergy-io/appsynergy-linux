@@ -56,10 +56,11 @@ for d in "$tmp"/pub/*/desc; do
   fn=$(awk '/^%FILENAME%/{getline; print; exit}' "$d")
   [[ -n "$fn" ]] || continue
   code=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$fn" || echo 000)
-  if [[ "$code" == "200" ]]; then
-    echo "  ok   $fn"
+  sig=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$fn.sig" || echo 000)
+  if [[ "$code" == "200" && "$sig" == "200" ]]; then
+    echo "  ok   $fn (+sig)"
   else
-    echo "  FAIL $fn (HTTP $code) — db names a package that cannot be fetched"
+    echo "  FAIL $fn (pkg=$code sig=$sig) — SigLevel Required clients cannot install this"
     rc=1
   fi
 done

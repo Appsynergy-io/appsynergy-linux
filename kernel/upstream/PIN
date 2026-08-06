@@ -1,0 +1,12 @@
+# Kernel source pin — the exact inputs that produced the published kernels.
+# Machine-read by packages/scripts/build-linux-appsynergy*.sh (assert_kernel_pin).
+UPSTREAM_REPO=https://github.com/CachyOS/linux-cachyos.git
+UPSTREAM_COMMIT=74d5bae
+PKGVER=7.1.5
+# Local modifications on top of that commit, captured verbatim:
+#   local-delta-74d5bae.patch          PKGBUILD + config delta (git diff at capture)
+#   dkms-clang.patch                   untracked patch the build applies
+#   config-7.1.5-3-appsynergy-server-skylake     final .config, OVH kernel as shipped
+#   config-7.1.5-2-appsynergy-server-tigerlake   final .config, NUC kernel as shipped
+# To reproduce: clone UPSTREAM_REPO at UPSTREAM_COMMIT, apply local-delta patch,
+# then packages/scripts/build-linux-appsynergy-server-flavor.sh <flavor>.

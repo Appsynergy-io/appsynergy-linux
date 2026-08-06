@@ -42,6 +42,9 @@ pkgs=() dbs=()
 for name in "${want[@]}"; do
   [[ -f "$REPO/$name" ]] || { echo "FAIL: db names a file missing from staging: $name"; exit 1; }
   pkgs+=("$REPO/$name")
+  # SigLevel Required makes pacman fetch <pkg>.sig — a package published without
+  # its sig hard-fails every client install once signatures are enforced.
+  [[ -f "$REPO/$name.sig" ]] && pkgs+=("$REPO/$name.sig")
 done
 for f in "$REPO"/appsynergy.db* "$REPO"/appsynergy.files*; do
   [[ -f "$f" && "$f" != *.old ]] && dbs+=("$f")
@@ -88,6 +91,19 @@ echo "==> packages (${#pkgs[@]})"
 for f in "${pkgs[@]}"; do put_file "$f"; done
 echo "==> database (${#dbs[@]}) — last, so it never names an absent package"
 for f in "${dbs[@]}"; do put_file "$f" force; done
+
+# Snapshot: a dated copy of the db (+sig) survives the next publish, so
+# rolling back = pointing pacman -U at the packages a dated db names — old
+# package files are never deleted from the registry, only the live db moves.
+STAMP=$(date +%Y%m%d-%H%M)
+for f in "$REPO/appsynergy.db.tar.gz" "$REPO/appsynergy.db.tar.gz.sig"; do
+  [[ -f "$f" ]] || continue
+  name="appsynergy.db-$STAMP${f##*appsynergy.db}"
+  echo "  PUT $name (snapshot)"
+  curl -sS -o /dev/null -w "    %{http_code}\n" -X PUT \
+    -H "Authorization: token $TOK" -H "Content-Type: application/octet-stream" \
+    --data-binary @"$f" "$BASE/$name"
+done
 
 echo
 echo "Public Server line:"

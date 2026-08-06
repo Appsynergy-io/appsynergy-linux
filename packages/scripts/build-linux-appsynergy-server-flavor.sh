@@ -40,6 +40,20 @@ LOG="/tmp/linux-${SUFFIX}-build.log"
 [[ -d $KDIR ]] || { echo "KDIR missing: $KDIR"; exit 1; }
 [[ -f $FRAG ]] || { echo "fragment missing: $FRAG"; exit 1; }
 
+# Pin assert: refuse to build from a source tree that drifted from the recorded
+# pin (kernel/upstream/PIN) — an unpinned build is unreproducible by definition.
+# PIN_OVERRIDE=1 builds anyway and prints what would have shipped.
+PIN_FILE="$MONO/kernel/upstream/PIN"
+if [[ -f $PIN_FILE ]]; then
+  want_commit=$(sed -n 's/^UPSTREAM_COMMIT=//p' "$PIN_FILE")
+  have_commit=$(git -C "$KDIR" rev-parse --short HEAD 2>/dev/null || echo unknown)
+  if [[ "$have_commit" != "$want_commit" ]]; then
+    echo "PIN MISMATCH: KDIR at $have_commit, pin says $want_commit ($PIN_FILE)"
+    [[ "${PIN_OVERRIDE:-0}" == "1" ]] || { echo "set PIN_OVERRIDE=1 to build anyway, then update the pin"; exit 1; }
+    echo "PIN_OVERRIDE=1 — building unpinned"
+  fi
+fi
+
 export _pkgsuffix="$SUFFIX"
 export _use_lto_suffix=no
 export _use_gcc_suffix=no

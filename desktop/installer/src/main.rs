@@ -765,7 +765,11 @@ fn install_branding(cfg: &Config) -> Result<()> {
     // land in ONE transaction, or pacman reports file conflicts on the paths
     // that appsynergy-branding 2-x used to own.
     let desktop = !cfg.variant.is_server();
-    let mut names: Vec<&str> = vec!["appsynergy-mirrorlist", "appsynergy-branding"];
+    let mut names: Vec<&str> = vec![
+        "appsynergy-mirrorlist",
+        "appsynergy-ca-certificates",
+        "appsynergy-branding",
+    ];
     if desktop {
         names.push("appsynergy-branding-desktop");
         names.push("appsynergy-wallpapers");
@@ -782,6 +786,10 @@ fn install_branding(cfg: &Config) -> Result<()> {
     let mut local: Vec<PathBuf> =
         list_glob(&cfg.local_pkgdir, "appsynergy-branding-[0-9]*.pkg.tar.zst");
     local.extend(list_glob(&cfg.local_pkgdir, "appsynergy-mirrorlist-*.pkg.tar.zst"));
+    local.extend(list_glob(
+        &cfg.local_pkgdir,
+        "appsynergy-ca-certificates-*.pkg.tar.zst",
+    ));
     if desktop {
         local.extend(list_glob(
             &cfg.local_pkgdir,

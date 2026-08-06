@@ -5,3 +5,4 @@ repo/
 **/*.pkg.tar.zst.sig
 **/appsynergy-mirrorlist-*.pkg.tar*
 **/appsynergy-branding-*.pkg.tar*
+**/*-payload.tar
