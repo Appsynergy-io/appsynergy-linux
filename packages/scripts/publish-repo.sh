@@ -23,16 +23,34 @@ BASE="$HOST/api/packages/$OWNER/generic/$PKG_NAME/$PKG_VER"
 echo "Publishing to $BASE (public package registry)"
 
 shopt -s nullglob
-files=("$REPO"/*)
+all=("$REPO"/*)
 shopt -u nullglob
-((${#files[@]})) || { echo "no files in $REPO"; exit 1; }
+((${#all[@]})) || { echo "no files in $REPO"; exit 1; }
 
-for f in "${files[@]}"; do
-  [[ -f "$f" ]] || continue
-  # skip nested dirs
+# Publish order matters. The database names the packages it indexes, so it must
+# go up LAST: a client syncing mid-publish against a new db whose packages are
+# not uploaded yet gets 404s on every install. Packages first, db/files after.
+pkgs=() dbs=()
+for f in "${all[@]}"; do
+  [[ -f "$f" ]] || continue           # skips nothing-but-dirs
   name=$(basename "$f")
-  # skip .sig for now if any
+  case "$name" in
+    *.old|*.sig)  echo "  skip  $name (not published)"; continue ;;
+    appsynergy.db*|appsynergy.files*) dbs+=("$f") ;;
+    *.pkg.tar.zst) pkgs+=("$f") ;;
+    *) echo "  skip  $name (unrecognised)"; continue ;;
+  esac
+done
+((${#pkgs[@]})) || { echo "no packages in $REPO — run build-repo.sh first"; exit 1; }
+
+put_file() {
+  local f="$1" name
+  name=$(basename "$f")
   echo "  PUT $name ($(du -h "$f" | awk '{print $1}'))"
+  # Gitea generic packages reject a re-PUT of an existing filename with 409.
+  # Delete first so republishing is idempotent; 404 on a new file is expected.
+  curl -sS -o /dev/null -X DELETE -H "Authorization: token $TOK" "$BASE/$name" || true
+  local code
   code=$(curl -sS -o /tmp/gitea-put.out -w "%{http_code}" \
     -X PUT \
     -H "Authorization: token $TOK" \
@@ -45,7 +63,12 @@ for f in "${files[@]}"; do
     exit 1
   fi
   echo "    OK $code"
-done
+}
+
+echo "==> packages (${#pkgs[@]})"
+for f in "${pkgs[@]}"; do put_file "$f"; done
+echo "==> database (${#dbs[@]}) — last, so it never names an absent package"
+for f in "${dbs[@]}"; do put_file "$f"; done
 
 echo
 echo "Public Server line:"

@@ -186,5 +186,8 @@ fuse-overlayfs
 # Live /etc/pacman.conf is stock Arch (no [appsynergy], conf.d unused).
 # appsynergy-install installs these after pacstrap via:
 #   1) public repo once [appsynergy]+XferCommand is registered, else
-#   2) local /opt/appsynergy/pkgs/appsynergy-{branding,mirrorlist}-*.pkg.tar.zst
+#   2) local /opt/appsynergy/pkgs/appsynergy-*.pkg.tar.zst
+# Desktop variant gets all four, in one transaction:
+#   appsynergy-mirrorlist  appsynergy-branding        (identity, both variants)
+#   appsynergy-branding-desktop  appsynergy-wallpapers (graphical, desktop only)
 # Do not list them here — pacstrap would fail looking in core/extra only.

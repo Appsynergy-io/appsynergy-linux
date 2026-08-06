@@ -1,0 +1,56 @@
+# Maintainer: AppSynergy
+# Graphical identity — desktop installs only. Never pulled onto a server.
+# Split out of appsynergy-branding 2-15 so wallpaper/icon/Plymouth iteration
+# cannot force a package change (or an initramfs rebuild) on production servers.
+pkgname=appsynergy-branding-desktop
+pkgver=1
+pkgrel=1
+pkgdesc='AppSynergy Linux graphical identity: hicolor icons, start-menu entry, Plymouth theme'
+arch=('any')
+url='https://git.appsynergy.io/imabee/appsynergy-linux'
+license=('MIT')
+install=appsynergy-branding-desktop.install
+# >=3 forces the identity split into the same pacman transaction; without it,
+# upgrading separately hits file conflicts on paths branding 2-x used to own.
+depends=('appsynergy-branding>=3' 'appsynergy-wallpapers')
+optdepends=('plymouth: animated boot splash (appsynergy theme)')
+# Local sources only (no remote download)
+source=()
+sha256sums=()
+
+package() {
+  local src="${startdir}"
+
+  # hicolor icons — LOGO=appsynergy-linux / start = appsynergy-start
+  # Bracket mark on dark pad — NOT hub-spoke.
+  if [[ -d "$src/icons/hicolor" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/icons/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/icons/$rel"
+    done < <(find "$src/icons/hicolor" -type f -print0)
+  fi
+  # Alias so restored Kickoff configs that still say org.cachyos.hello show our mark
+  if [[ -f "$pkgdir/usr/share/icons/hicolor/scalable/apps/appsynergy-start.svg" ]]; then
+    ln -sfn appsynergy-start.svg \
+      "$pkgdir/usr/share/icons/hicolor/scalable/apps/org.cachyos.hello.svg"
+    for size in 16 22 24 32 48 64 128 256 512; do
+      local d="$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps"
+      if [[ -f "$d/appsynergy-start.png" ]]; then
+        ln -sfn appsynergy-start.png "$d/org.cachyos.hello.png"
+      fi
+    done
+  fi
+
+  if [[ -f "$src/applications/appsynergy-start.desktop" ]]; then
+    install -Dm644 "$src/applications/appsynergy-start.desktop" \
+      "$pkgdir/usr/share/applications/appsynergy-start.desktop"
+  fi
+
+  # Plymouth theme (wordmark pulse + arc throbber — no hub-spoke)
+  if [[ -d "$src/plymouth/appsynergy" ]]; then
+    while IFS= read -r -d '' f; do
+      rel="${f#"$src/plymouth/"}"
+      install -Dm644 "$f" "$pkgdir/usr/share/plymouth/themes/$rel"
+    done < <(find "$src/plymouth/appsynergy" -type f -print0)
+  fi
+}

@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "AppSynergy"
+            }
+        ],
+        "Id": "AppSynergy",
+        "License": "MIT",
+        "Name": "AppSynergy"
+    }
+}

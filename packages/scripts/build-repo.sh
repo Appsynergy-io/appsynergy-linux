@@ -7,7 +7,9 @@ mkdir -p "$REPO"
 
 build_pkg() {
   local dir="$1"
-  (cd "$dir" && makepkg -f --noconfirm -c 2>/dev/null || makepkg -f --noconfirm)
+  # -d: these are file-shipping any/ packages; depends= are runtime-only and
+  # need not be installed on the build host.
+  (cd "$dir" && makepkg -f --noconfirm -c -d 2>/dev/null || makepkg -f --noconfirm -d)
   shopt -s nullglob
   for f in "$dir"/*.pkg.tar.zst; do
     cp -a "$f" "$REPO/"
@@ -15,9 +17,11 @@ build_pkg() {
   shopt -u nullglob
 }
 
-echo "==> Building appsynergy-mirrorlist / branding"
+echo "==> Building appsynergy any/ packages"
 build_pkg "$ROOT/pkgbuilds/appsynergy-mirrorlist"
 build_pkg "$ROOT/pkgbuilds/appsynergy-branding"
+build_pkg "$ROOT/pkgbuilds/appsynergy-wallpapers"
+build_pkg "$ROOT/pkgbuilds/appsynergy-branding-desktop"
 
 # Stage custom kernel if present on this machine
 for f in \

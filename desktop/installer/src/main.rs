@@ -757,33 +757,63 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
 }
 
 fn install_branding(cfg: &Config) -> Result<()> {
+    // Identity (appsynergy-branding) ships to both variants. The graphical half
+    // — icons, start entry, Plymouth theme, wallpapers — is desktop-only, so a
+    // server never carries a Plasma asset or rebuilds its initramfs for one.
+    //
+    // appsynergy-branding-desktop depends on appsynergy-branding>=3: both must
+    // land in ONE transaction, or pacman reports file conflicts on the paths
+    // that appsynergy-branding 2-x used to own.
+    let desktop = !cfg.variant.is_server();
+    let mut names: Vec<&str> = vec!["appsynergy-mirrorlist", "appsynergy-branding"];
+    if desktop {
+        names.push("appsynergy-branding-desktop");
+        names.push("appsynergy-wallpapers");
+    }
     // Try public repo first (best-effort).
     let _ = cmd::arch_chroot(
         &cfg.mnt,
-        "pacman -Sy --noconfirm appsynergy-mirrorlist appsynergy-branding",
+        &format!("pacman -Sy --noconfirm {}", names.join(" ")),
     );
+
     // Local packages with --overwrite for any leftover paths.
-    let brands = list_glob(&cfg.local_pkgdir, "appsynergy-branding-*.pkg.tar.zst");
-    let mirrors = list_glob(&cfg.local_pkgdir, "appsynergy-mirrorlist-*.pkg.tar.zst");
-    let local: Vec<PathBuf> = brands.into_iter().chain(mirrors).collect();
+    // The [0-9] anchor matters: a bare "appsynergy-branding-*" glob also matches
+    // "appsynergy-branding-desktop-*", which would drag Plasma assets onto a server.
+    let mut local: Vec<PathBuf> =
+        list_glob(&cfg.local_pkgdir, "appsynergy-branding-[0-9]*.pkg.tar.zst");
+    local.extend(list_glob(&cfg.local_pkgdir, "appsynergy-mirrorlist-*.pkg.tar.zst"));
+    if desktop {
+        local.extend(list_glob(
+            &cfg.local_pkgdir,
+            "appsynergy-branding-desktop-*.pkg.tar.zst",
+        ));
+        local.extend(list_glob(
+            &cfg.local_pkgdir,
+            "appsynergy-wallpapers-*.pkg.tar.zst",
+        ));
+    }
     if !local.is_empty() {
         let dest = cfg.mnt.join("root/pkgs");
         fs::create_dir_all(&dest)?;
+        let mut chroot_paths: Vec<String> = Vec::new();
         for p in &local {
-            fs::copy(p, dest.join(p.file_name().unwrap()))?;
+            let name = p.file_name().unwrap();
+            fs::copy(p, dest.join(name))?;
+            chroot_paths.push(format!("/root/pkgs/{}", name.to_string_lossy()));
         }
+        // Explicit file list — one transaction, no globbing inside the chroot.
         cmd::arch_chroot(
             &cfg.mnt,
-            r#"
-set -e
-shopt -s nullglob
-pkgs=(/root/pkgs/appsynergy-branding-*.pkg.tar.zst /root/pkgs/appsynergy-mirrorlist-*.pkg.tar.zst)
-if ((${#pkgs[@]})); then
-  pacman -U --noconfirm --overwrite '*' "${pkgs[@]}"
-fi
-"#,
+            &format!(
+                "set -e\npacman -U --noconfirm --overwrite '*' {}\n",
+                chroot_paths.join(" ")
+            ),
         )?;
-        println!("    branding/mirrorlist installed (local, --overwrite)");
+        println!(
+            "    branding installed (local, --overwrite): {} pkg(s), variant={}",
+            chroot_paths.len(),
+            if desktop { "desktop" } else { "server" }
+        );
     } else {
         eprintln!("WARN: no local branding pkgs; repo path may have failed");
     }
