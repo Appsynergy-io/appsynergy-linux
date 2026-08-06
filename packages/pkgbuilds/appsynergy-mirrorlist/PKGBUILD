@@ -1,11 +1,14 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-mirrorlist
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc='Pacman mirrorlist / repo registration for AppSynergy Linux packages'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-linux'
 license=('MIT')
+# Keyring in the same transaction: its .install populates pacman-key before our
+# scriptlet migrates a legacy TrustAll section to Required.
+depends=('appsynergy-keyring')
 install=appsynergy-mirrorlist.install
 source=('appsynergy-mirrorlist' 'appsynergy.conf' 'LICENSE')
 sha256sums=('1808ff9fa3b6e1d6d2dbd9d8cf044555c5542ba86c97f8c33c899e7265475fa8'
