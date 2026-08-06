@@ -2,6 +2,12 @@
 
 Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
 
+## Unreleased
+
+| Package | Version | Change |
+|---------|---------|--------|
+| `appsynergy-mirrorlist` | 1-6 | scriptlet migrates legacy inline TrustAll `[appsynergy]` to the signed drop-in (keyring-gated, validated, backed up); depends on `appsynergy-keyring` |
+
 ## v2026.08.06
 
 First release with a chain of trust. Everything below published to

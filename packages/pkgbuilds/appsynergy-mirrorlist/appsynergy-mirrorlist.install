@@ -1,7 +1,9 @@
 _marker='# AppSynergy repo (appsynergy-mirrorlist)'
 _include='Include = /etc/pacman.conf.d/appsynergy.conf'
+_fpr=3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1
 
 post_install() {
+  _appsynergy_upgrade_trustall
   _appsynergy_wire_repo
 }
 
@@ -9,14 +11,58 @@ post_upgrade() {
   post_install
 }
 
+_appsynergy_upgrade_trustall() {
+  local conf=/etc/pacman.conf tmp backup
+
+  # Legacy installs carry an inline [appsynergy] section with
+  # `SigLevel = Optional TrustAll`. It makes the repo resolvable, so the
+  # wiring below no-ops and the host stays on TrustAll forever. Replace the
+  # inline section with the packaged drop-in (Required DatabaseRequired).
+  awk '
+    /^[[:space:]]*\[appsynergy\][[:space:]]*$/ { insec=1; next }
+    /^[[:space:]]*\[/                          { insec=0 }
+    insec && /TrustAll/                        { found=1 }
+    END { exit found ? 0 : 1 }
+  ' "$conf" 2>/dev/null || return 0
+
+  # Fail-open: without the key, Required would brick every transaction.
+  if ! pacman-key --list-keys "$_fpr" >/dev/null 2>&1; then
+    echo ">>> WARNING: $conf still has [appsynergy] with SigLevel TrustAll, but the"
+    echo ">>> AppSynergy key $_fpr is not in the pacman keyring."
+    echo ">>> Keeping TrustAll so pacman stays usable. To migrate, run"
+    echo ">>> 'pacman-key --populate appsynergy' and reinstall appsynergy-mirrorlist."
+    return 0
+  fi
+
+  # Rewrite a candidate in /etc (same filesystem => atomic mv), validate it
+  # with pacman-conf, and only then replace the live file.
+  tmp=$(mktemp /etc/pacman.conf.XXXXXX) || return 0
+  awk '
+    /^[[:space:]]*\[appsynergy\][[:space:]]*$/ { skip=1; next }
+    /^[[:space:]]*\[/                          { skip=0 }
+    !skip
+  ' "$conf" > "$tmp"
+  _appsynergy_wire_repo "$tmp"
+  if ! pacman-conf --config "$tmp" --repo=appsynergy >/dev/null 2>&1; then
+    echo ">>> WARNING: rewritten pacman.conf failed validation; keeping TrustAll config"
+    rm -f "$tmp"
+    return 0
+  fi
+  backup=$conf.pre-required-$(date +%Y%m%d-%H%M%S)
+  cp -p "$conf" "$backup"
+  chmod 644 "$tmp"
+  mv "$tmp" "$conf"
+  echo ">>> migrated inline TrustAll [appsynergy] to signed drop-in (backup: $backup)"
+}
+
 _appsynergy_wire_repo() {
-  local conf=/etc/pacman.conf drop=/etc/pacman.conf.d/appsynergy.conf
+  local conf=${1:-/etc/pacman.conf} drop=/etc/pacman.conf.d/appsynergy.conf
 
   # pacman has NO pacman.conf.d convention — it reads only what pacman.conf
   # explicitly Includes. Shipping the drop-in alone leaves it dead config and
   # the repo invisible, which is exactly how a production server sat unable to
   # see [appsynergy] at all while everyone assumed it was subscribed.
-  if pacman-conf --repo=appsynergy >/dev/null 2>&1; then
+  if pacman-conf --config "$conf" --repo=appsynergy >/dev/null 2>&1; then
     return 0   # already reachable: inline section, or an Include already present
   fi
 
