@@ -22,7 +22,7 @@ External 18-agent audit (2026-08) → three read-only verification sweeps confir
 | U3 disk-safety | #14 | explicit disk-source precedence (typed flag wins); `--yes` refuses auto-detected disks; real block-device + partition + live-medium rejection |
 | U4 robustness | #17 | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
 | U6 gate-lints | #13 | shellcheck discovers every script (incl. extensionless, by shebang); unanchored-glob lint; write-usb removability gate |
-| U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. Kernel built+published; **NUC reboot deferred to maintenance window** |
+| U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. **Kernel not yet rebuilt** — see deferred |
 | U9 docs+CA | #18 | docs teach Required signatures; pre-rename paths fixed (incl. a live `backup-to-usb.sh` bug); one-secret keyfile model documented honestly; `appsynergy-ca-certificates` 1-3 makes the Root the only anchor, Intermediate neutral-trust chain filler |
 | CI | #10, #11, #15 | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
 | gate determinism | #16 | `--mode='a-st'` in `make-srctars.sh` — see below |
@@ -41,10 +41,15 @@ This is the class of defect a workstation-only gate cannot see, and it appeared 
 - **CI runner deployed to skylake** — namespace `ci`, registered as `k3s-arch-host`, green on `main`. Existing workloads' restart counts are byte-identical to the pre-deploy baseline; node sat at 18% CPU after a full CI queue drain.
 - Artifact worth knowing: skylake predates the current installer and carries `/etc/appsynergy/VARIANT.txt` (`VARIANT=Server`) where tigerlake and current code use `/etc/appsynergy/VARIANT` (`server`). Both agree with os-release; harmless, not worth a migration.
 
-## Deferred — maintenance window, owner: operator
+## Deferred — operator decision required
 
-- Tigerlake boot into PHYSDEV kernel + NetworkPolicy validation (`KUBE-NWPLCY-` chains > 8, pod probes per kernel/CLAUDE.md).
-- Any tigerlake initrd change.
+Tigerlake NetworkPolicy is still fail-open (8 `KUBE-NWPLCY-` chains vs skylake's 93). Closing it is three ordered steps, none of them started:
+
+1. `packages/scripts/build-linux-appsynergy-server-flavor.sh tigerlake` — KDIR is present and matches `kernel/upstream/PIN` (`74d5bae`, 7.1.5). Assert both `CONFIG_BRIDGE_NETFILTER=m` and `CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m` in the built config before going further.
+2. `build-repo.sh && publish-repo.sh` — needs the GPG signing key (`sdx:appsynergy-linux/gpg-signing-key`); publish now refuses unsigned and self-verifies.
+3. **Reboot the NUC** into the new kernel, then confirm `iptables-save -t filter | grep -c KUBE-NWPLCY-` exceeds 8 and probe a denied pod path. Loading `br_netfilter` on skylake would likewise flip its perimeter from fail-open to enforcing mid-flight — review `kubectl get netpol -A` for missing allow-rules first.
+
+Any tigerlake initrd change belongs in the same window.
 
 ## Deferred — accepted risk / future work
 
