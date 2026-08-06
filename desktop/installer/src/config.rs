@@ -2,6 +2,7 @@
 //! Unified installer: `--variant desktop|server` + single or dual-disk RAID1.
 
 use crate::disk::{self, DiskLayout};
+use crate::validate;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
 use std::collections::HashMap;
@@ -259,6 +260,17 @@ impl Config {
             .get("APPSYNERGY_KEYMAP")
             .cloned()
             .unwrap_or_else(|| "us".into());
+
+        // Every source — CLI flag, process env, machine.env — has converged by
+        // here, so this is the one place that has to hold. Downstream these are
+        // format!ed into `bash -c` chroot scripts and into /etc files on the
+        // target; validating at load means no call site needs quoting to be safe.
+        validate::validate_hostname(&hostname)?;
+        validate::validate_username(&user)?;
+        validate::validate_timezone(&timezone)?;
+        validate::check_timezone_exists(&timezone)?;
+        validate::validate_locale(&locale)?;
+        validate::validate_keymap(&keymap)?;
 
         let password = match cli.password_file {
             Some(ref p) => Some(read_password_file(p)?),

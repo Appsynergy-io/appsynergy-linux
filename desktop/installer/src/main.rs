@@ -16,6 +16,7 @@ mod config;
 mod detect;
 mod disk;
 mod guide;
+mod validate;
 
 #[cfg(test)]
 mod adversarial_tests;
