@@ -42,7 +42,7 @@ Cachy `prepare` enables **`X86_NATIVE_CPU`** when `_processor_opt` is empty — 
 # or one:
 ./scripts/build-linux-appsynergy-server-skylake.sh
 ./scripts/build-linux-appsynergy-server-tigerlake.sh
-# packages → repo/x86_64/ + appsynergy-desktop/iso/.../opt/appsynergy/pkgs/
+# packages → packages/repo/x86_64/ + desktop/iso/.../opt/appsynergy/pkgs/
 ```
 
 Post-build: config must have `# CONFIG_X86_NATIVE_CPU is not set`. Script refuses otherwise.

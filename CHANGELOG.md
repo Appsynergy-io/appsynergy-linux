@@ -7,6 +7,7 @@ Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
 | Package | Version | Change |
 |---------|---------|--------|
 | `appsynergy-mirrorlist` | 1-6 | scriptlet migrates legacy inline TrustAll `[appsynergy]` to the signed drop-in (keyring-gated, validated, backed up); depends on `appsynergy-keyring` |
+| `appsynergy-ca-certificates` | 1-3 | Root CA is the **only** trust anchor. Intermediate moves out of `anchors/` to the `trust-source/` top level, where `update-ca-trust(8)` gives it neutral trust — still completes chains for services that present only their leaf (vault-k2), no longer an independent trust root |
 
 ## v2026.08.06
 

@@ -14,7 +14,7 @@ for this role — **keep list only**, no appliance applications.
 | [SERVER-KERNEL.md](SERVER-KERNEL.md) | kernel fragment / package |
 | [SERVER-SECURITY.md](SERVER-SECURITY.md) | TPM / SSH unlock |
 | `configs/server.fragment` | Kconfig |
-| `appsynergy-desktop` | installer, `packages-target-server.txt` |
+| `desktop/` | installer, `packages-target-server.txt` |
 
 ## Keep list
 

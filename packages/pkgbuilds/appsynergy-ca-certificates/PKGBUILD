@@ -3,12 +3,18 @@
 # Certificates are PUBLIC material, exported from vault-k2 pki_int/ca_chain.
 #
 # Issuance policy (docs/DISTRO-AUDIT.md S1): end-entity certs are issued from
-# the Intermediate only; the Root signs nothing operational. The intermediate
-# ships too because some services (vault-k2 itself) present only their leaf.
+# the Intermediate only; the Root signs nothing operational.
+#
+# The Root is the ONLY anchor. The Intermediate installs to the trust-source
+# top level, never anchors/: update-ca-trust(8) gives plain PEM there neutral
+# trust — known to the system for chain construction, trusted for nothing. That
+# keeps verification working against services presenting only their leaf
+# (vault-k2 does) while a compromised Intermediate stays revocable under the
+# same Root instead of being a second, independent trust root.
 pkgname=appsynergy-ca-certificates
 pkgver=1
-pkgrel=2
-pkgdesc='AppSynergy Root + Intermediate CA as system trust anchors'
+pkgrel=3
+pkgdesc='AppSynergy Root CA trust anchor; Intermediate CA as chain filler'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-linux'
 license=('MIT')
@@ -23,7 +29,7 @@ package() {
   install -Dm644 "$srcdir/appsynergy-root-ca.crt" \
     "$pkgdir/etc/ca-certificates/trust-source/anchors/appsynergy-root-ca.crt"
   install -Dm644 "$srcdir/appsynergy-intermediate-ca.crt" \
-    "$pkgdir/etc/ca-certificates/trust-source/anchors/appsynergy-intermediate-ca.crt"
+    "$pkgdir/etc/ca-certificates/trust-source/appsynergy-intermediate-ca.crt"
 
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/appsynergy-ca-certificates/LICENSE"
 }
