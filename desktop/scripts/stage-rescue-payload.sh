@@ -8,7 +8,7 @@ STAMP=$(date +%Y%m%d)
 OUT_DIR="$ROOT/out/appsynergy-server-rescue"
 TAR="$ROOT/out/appsynergy-server-rescue-${STAMP}.tar.zst"
 
-mkdir -p "$OUT_DIR"/{pkgs,etc,docs,bootstrap}
+mkdir -p "$OUT_DIR"/{pkgs,etc,docs,bootstrap,k3s}
 # FLAVOUR=all keeps both server kernels; default ships only what the target needs.
 # The payload is copied to the box over the network, so every extra 150MB is
 # transfer time during an outage.
@@ -25,10 +25,6 @@ for kf in "${KFLAVOURS[@]}"; do
   srcs+=( "$REPO"/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
   srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
 done
-srcs+=( "$REPO"/appsynergy-branding-*.pkg.tar.zst )
-srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-branding-*.pkg.tar.zst )
-srcs+=( "$REPO"/appsynergy-mirrorlist-*.pkg.tar.zst )
-srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/appsynergy-mirrorlist-*.pkg.tar.zst )
 for f in "${srcs[@]}"; do
   [[ -f $f ]] || continue
   [[ $f == *dbg* ]] && continue
@@ -36,11 +32,30 @@ for f in "${srcs[@]}"; do
 done
 shopt -u nullglob
 
+# AppSynergy support packages a server pull needs offline. Globs are
+# version-anchored with [0-9]: a bare appsynergy-branding-* also matches
+# appsynergy-branding-desktop-*, which would corrupt both the copy and the
+# prune below (the prune would keep -desktop and delete the identity package).
+declare -A PKG_GLOB=(
+  [appsynergy-branding]='appsynergy-branding-[0-9]*.pkg.tar.zst'
+  [appsynergy-mirrorlist]='appsynergy-mirrorlist-[0-9]*.pkg.tar.zst'
+  [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
+  [appsynergy-keyring]='appsynergy-keyring-[0-9]*.pkg.tar.zst'
+)
+for src in "$REPO" "$ROOT/iso/airootfs/opt/appsynergy/pkgs"; do
+  for base in "${!PKG_GLOB[@]}"; do
+    if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
+      cp -a "$src"/${PKG_GLOB[$base]} "$OUT_DIR/pkgs/" 2>/dev/null || true
+    fi
+  done
+done
+rm -f "$OUT_DIR/pkgs/"*-dbg-*.pkg.tar.zst
+
 # Keep only the newest release of each package. This script only ever copies in,
 # so without a prune the payload accumulates every historical build and pacman -U
 # gets ambiguous input (the same defect that shipped branding 2-11 on the ISO).
-for base in appsynergy-branding appsynergy-mirrorlist; do
-  mapfile -t old < <(ls -1v "$OUT_DIR/pkgs/$base"-*.pkg.tar.zst 2>/dev/null | head -n -1)
+for base in "${!PKG_GLOB[@]}"; do
+  mapfile -t old < <(ls -1v "$OUT_DIR/pkgs/"${PKG_GLOB[$base]} 2>/dev/null | head -n -1)
   for f in "${old[@]:-}"; do
     [[ -n "$f" ]] && { echo "  prune stale $(basename "$f")"; rm -f "$f"; }
   done
@@ -81,6 +96,18 @@ elif [[ -x $ROOT/iso/airootfs/usr/local/bin/appsynergy-install ]]; then
   cp -a "$ROOT/iso/airootfs/usr/local/bin/appsynergy-install" "$OUT_DIR/"
 fi
 
+# k3s: rescue-install.sh wires this into the chroot; the installer hard-fails a
+# server install without /opt/appsynergy/k3s/k3s. stage-k3s.sh verifies the
+# pinned sha256. k3s.service.env is excluded — secrets never travel in the
+# tarball — and replaced by an empty 0600 placeholder.
+bash "$ROOT/scripts/stage-k3s.sh"
+for f in "$ROOT/iso/airootfs/opt/appsynergy/k3s"/*; do
+  [[ $(basename "$f") == k3s.service.env ]] && continue
+  cp -a "$f" "$OUT_DIR/k3s/"
+done
+: >"$OUT_DIR/k3s/k3s.service.env"
+chmod 600 "$OUT_DIR/k3s/k3s.service.env"
+
 # Arch bootstrap: OVH rescue is Debian and has no pacstrap/arch-chroot. Without
 # this the install cannot proceed at all, so its absence is a hard failure.
 BOOTSTRAP=$(ls -1t "$ROOT"/out/*bootstrap*.tar.zst 2>/dev/null | head -1 || true)
@@ -102,6 +129,9 @@ fail=0
 [[ -s "$OUT_DIR/etc/packages-target-server.txt" ]] || { echo "ERROR: packages-target-server.txt missing" >&2; fail=1; }
 compgen -G "$OUT_DIR/pkgs/linux-appsynergy-server-*.pkg.tar.zst" >/dev/null \
   || { echo "ERROR: no server kernel package staged" >&2; fail=1; }
+[[ -x "$OUT_DIR/k3s/k3s" ]] || { echo "ERROR: k3s/k3s missing — server install dies after pacstrap without it" >&2; fail=1; }
+compgen -G "$OUT_DIR/pkgs/appsynergy-keyring-[0-9]*.pkg.tar.zst" >/dev/null \
+  || { echo "ERROR: appsynergy-keyring package missing" >&2; fail=1; }
 (( fail == 0 )) || exit 1
 
 # Checksums (paths only; the only key here is a public one).

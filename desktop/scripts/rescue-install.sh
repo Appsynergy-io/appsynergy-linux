@@ -6,7 +6,7 @@
 # Nothing here improvises: every input is verified before the first destructive
 # step, and the installer itself refuses a server install without an unlock key.
 #
-#   bash rescue-install.sh --disk /dev/nvme0n1,/dev/nvme1n1 [--flavour skylake]
+#   bash rescue-install.sh --disks /dev/nvme0n1,/dev/nvme1n1 [--flavour skylake]
 #
 # Run rescue-preflight.sh FIRST and read its output.
 set -uo pipefail
@@ -23,7 +23,9 @@ say() { printf '==> %s\n' "$*"; }
 
 while (( $# )); do
   case "$1" in
-    --disk)    DISKS="$2"; shift 2 ;;
+    --disks)   DISKS="$2"; shift 2 ;;
+    --disk)    [[ "$2" == *,* ]] && die "--disk takes ONE device; use --disks for a comma-separated list"
+               DISKS="$2"; shift 2 ;;
     --flavour) FLAVOUR="$2"; shift 2 ;;
     --payload) PAYLOAD="$2"; shift 2 ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
@@ -32,7 +34,7 @@ while (( $# )); do
 done
 
 [[ $EUID -eq 0 ]] || die "run as root"
-[[ -n "$DISKS" ]] || die "--disk is required (comma-separated). Take the names from rescue-preflight.sh."
+[[ -n "$DISKS" ]] || die "--disks is required (comma-separated). Take the names from rescue-preflight.sh."
 [[ "$FLAVOUR" =~ ^(skylake|tigerlake)$ ]] || die "--flavour must be skylake or tigerlake"
 
 # ---------------------------------------------------------------- verify input
@@ -52,6 +54,10 @@ say "  target disks: $DISKS"
 KPKG=$(ls -1 "$PAYLOAD"/pkgs/linux-appsynergy-server-${FLAVOUR}-[0-9]*.pkg.tar.zst 2>/dev/null | head -1)
 [[ -n "$KPKG" ]] || die "no $FLAVOUR kernel package in $PAYLOAD/pkgs/"
 say "  kernel: $(basename "$KPKG")"
+
+# The installer hard-requires /opt/appsynergy/k3s/k3s for server installs —
+# checked here, before the first destructive step, not mid-install after pacstrap.
+[[ -x "$PAYLOAD/k3s/k3s" ]] || die "payload k3s/k3s missing or not executable — re-run stage-rescue-payload.sh"
 
 PUBKEY="$PAYLOAD/etc/ssh-unlock.pub"
 [[ -s "$PUBKEY" ]] || die "missing $PUBKEY — a headless server cannot be unlocked without it"
@@ -101,6 +107,12 @@ cp -a "$PAYLOAD/etc/." "$R/etc/appsynergy/"
 # Only the selected flavour's kernel; the other would just slow pacman -U.
 cp -a "$PAYLOAD"/pkgs/linux-appsynergy-server-${FLAVOUR}-*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
 cp -a "$PAYLOAD"/pkgs/appsynergy-*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
+# k3s binary + unit for the installer's server overlay. The tarball ships an
+# empty k3s.service.env placeholder; either way the chroot copy must be 0600.
+mkdir -p "$R/opt/appsynergy/k3s"
+cp -a "$PAYLOAD/k3s/." "$R/opt/appsynergy/k3s/"
+[[ -f "$R/opt/appsynergy/k3s/k3s.service.env" ]] || : >"$R/opt/appsynergy/k3s/k3s.service.env"
+chmod 600 "$R/opt/appsynergy/k3s/k3s.service.env"
 install -Dm755 "$PAYLOAD/appsynergy-install" "$R/usr/local/bin/appsynergy-install" \
   || die "installer binary missing from payload"
 
@@ -125,7 +137,7 @@ cp /etc/resolv.conf "$R/etc/resolv.conf" 2>/dev/null || true
 say "running appsynergy-install (this partitions and wipes $DISKS)"
 chroot "$R" /usr/local/bin/appsynergy-install \
   --variant server \
-  --disk "$DISKS" \
+  --disks "$DISKS" \
   --ssh-pubkey /etc/appsynergy/ssh-unlock.pub \
   "${PASSTHRU[@]}"
 rc=$?

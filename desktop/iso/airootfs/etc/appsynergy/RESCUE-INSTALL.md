@@ -9,13 +9,15 @@ mirrors already baked in), so a Debian rescue needs no Arch tooling of its own.
 ## 0. Build the payload (on your workstation)
 
 ```bash
-cd ~/projects/appsynergy-desktop
+cd ~/projects/appsynergy-linux/desktop
 sudo ./scripts/build-bootstrap.sh          # Arch bootstrap tarball → out/
 ./scripts/stage-rescue-payload.sh          # FLAVOUR=tigerlake|all to change kernels
 ```
 
 Produces `out/appsynergy-server-rescue-YYYYMMDD.tar.zst` (~272 MB, skylake only).
-Both scripts fail loudly rather than emit an unusable payload.
+Both scripts fail loudly rather than emit an unusable payload. The payload
+includes the k3s binary (sha256-pinned by `stage-k3s.sh`); `k3s.service.env`
+ships as an empty placeholder — secrets never travel in the tarball.
 
 ## 1. Boot rescue and copy the payload
 
@@ -52,14 +54,14 @@ decision is needed. Two things it catches that would otherwise strand you:
 ## 3. Install
 
 ```bash
-bash rescue-install.sh --disk /dev/nvme0n1,/dev/nvme1n1
+bash rescue-install.sh --disks /dev/nvme0n1,/dev/nvme1n1
 ```
 
 Optional: `--flavour tigerlake`, `--yes`, `--password-file /path/to/key`.
 Anything unrecognised is passed through to `appsynergy-install`.
 
 The script verifies payload checksums, unpacks the bootstrap, checks the tooling
-is present, wires `etc/` and `pkgs/` into the chroot, bind-mounts
+is present, wires `etc/`, `pkgs/` and `k3s/` into the chroot, bind-mounts
 `/proc /sys /dev /run`, and runs the installer. It always unmounts on exit —
 including on failure — and warns rather than leaving a half-mounted tree.
 
