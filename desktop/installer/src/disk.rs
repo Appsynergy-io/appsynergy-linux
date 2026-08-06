@@ -84,6 +84,48 @@ pub fn parse_disks_list(s: &str) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
+/// Partition name by naming rule: nvme0n1p2 / sda1 / mmcblk0p1 → true;
+/// nvme0n1 / sda / loop0 → false. `/sys/class/block/<name>/partition` is the
+/// authoritative test; this is the fallback when sysfs is unavailable, so it
+/// only claims the two naming schemes it can decide (`<disk>p<n>` and sd/vd/hd/xvd).
+pub fn is_partition_name(name: &str) -> bool {
+    let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    if base.len() == name.len() {
+        return false;
+    }
+    if is_nvme_style(name) {
+        // nvme/mmcblk/loop partitions are `<disk>p<n>` and the disk ends in a digit,
+        // which is what separates loop0p1 (partition) from loop0 (disk).
+        return base.ends_with('p')
+            && base[..base.len() - 1].ends_with(|c: char| c.is_ascii_digit());
+    }
+    ["sd", "vd", "hd", "xvd"].iter().any(|p| base.starts_with(p))
+        && base.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// Device name (no `/dev/`) backing the live medium, parsed from `/proc/self/mounts`
+/// text. archiso mounts the boot medium at `/run/archiso/bootmnt`; the loop devices
+/// mounted there are squashfs images, not the physical medium.
+pub fn live_medium_device(mounts: &str) -> Option<String> {
+    for line in mounts.lines() {
+        let mut f = line.split_whitespace();
+        let (Some(dev), Some(mountpoint)) = (f.next(), f.next()) else {
+            continue;
+        };
+        if mountpoint != "/run/archiso/bootmnt" {
+            continue;
+        }
+        let Some(name) = dev.strip_prefix("/dev/") else {
+            continue;
+        };
+        if name.starts_with("loop") {
+            continue;
+        }
+        return Some(name.to_string());
+    }
+    None
+}
+
 /// Build layout. Dual disks → RAID1 crypt0/crypt1; single → cryptname (default cryptroot).
 pub fn plan_layout(
     disks: &[PathBuf],
