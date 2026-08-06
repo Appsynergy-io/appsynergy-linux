@@ -68,7 +68,7 @@ or next ISO spin of appsynergy-install / branding.
 
 ## Suggested installer PR checklist
 
-Implemented in **Rust** (`appsynergy-desktop/installer/`, binary `appsynergy-install` 0.2.0):
+Implemented in **Rust** (`desktop/installer/`, binary `appsynergy-install` 0.2.0):
 
 - [x] Fix os-release dual-copy / symlink → write `/usr/lib/os-release` + `ln -sfn`
 - [x] Branding: no pre-seed of package-owned files; `pacman -U --overwrite '*'`

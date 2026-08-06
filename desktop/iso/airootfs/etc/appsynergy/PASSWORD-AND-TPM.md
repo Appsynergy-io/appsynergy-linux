@@ -18,16 +18,24 @@ Same idea as today (LUKS → btrfs subvols), but **one LUKS on the whole disk** 
 
 ---
 
-## Passwords you set (three things — do not mix them)
+## Passwords you set — one or three, depending on the mode
 
-| When | What | Used for |
-|------|------|----------|
-| **During `appsynergy-install`** | **Volume / LUKS passphrase** | Unlock disk at every boot (until TPM works) |
-| **During install (later)** | **root** password | Rescue / `su` |
-| **During install (later)** | **imma** password | Plasma / sudo login |
+| Mode | You are in it when | Secrets |
+|------|--------------------|---------|
+| **Keyfile / batch** | `--password-file PATH`, `APPSYNERGY_KEYFILE`, an existing `/tmp/appsynergy-key`, or you answered the guided password prompt | **One.** The same string is the LUKS passphrase, the root password and your login password |
+| **Interactive** | no keyfile, and you left the guided prompt empty | **Three**, independent: LUKS typed twice at `cryptsetup`, then root and user typed at separate `passwd` prompts in the chroot |
 
-The **volume passphrase** is asked by `cryptsetup luksFormat` (type **twice**), then once more to open.  
-It is **not** the same as the user login password unless you choose to reuse it (not recommended).
+The guided installer states it outright: *"LUKS + root + login password (same for all). Leave empty to type passwords later during install."* Keyfile mode is the default path for unattended and server installs.
+
+### What that one secret reaches in keyfile mode
+
+1. `cryptsetup luksFormat --key-file=-` and `cryptsetup open` — the volume passphrase.
+2. `chpasswd` for `root:` and `<user>:` — both login passwords.
+3. `systemd-cryptenroll --unlock-key-file=` — it **authorizes** TPM enrollment. The TPM seals a fresh random key into its own keyslot, so your secret is not the sealed material; but whoever holds it can add a keyslot.
+
+One secret to lose, one to protect. Choose it at **volume-passphrase** strength — it guards a LUKS header an attacker can carry away, so ordinary login-password strength is not enough. It lands in `/tmp/appsynergy-key` and `/tmp/appsynergy-tpm-unlock.key`, both mode 0600 on the live medium's tmpfs and gone at reboot.
+
+Use interactive mode if the disk secret must differ from the login password.
 
 ### Choosing a good volume passphrase
 
@@ -124,7 +132,7 @@ Classic `cryptdevice=` + `encrypt` hook does **not** auto-use TPM tokens.
 
 | Problem | Action |
 |---------|--------|
-| Forgot user password | Boot USB, unlock LUKS with volume pass, `arch-chroot`, `passwd imma` |
+| Forgot user password | Boot USB, unlock LUKS with volume pass, `arch-chroot`, `passwd imma` (in keyfile mode they are the same string, so this is also the volume passphrase) |
 | Forgot volume passphrase | Data not recoverable (no escrow). Headers alone do not help. |
 | TPM stops unlocking | Type volume passphrase; re-run `appsynergy-tpm-enroll` |
 | BIOS cleared TPM | Same as above |

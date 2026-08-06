@@ -19,6 +19,12 @@ at the edge of the build.
 Read S1–S5 as one story: distribute the trust root, sign against it, make what is
 signed rebuildable, then enforce all three mechanically. S6–S11 are hygiene.
 
+**Findings are recorded as-found and left unedited; each now carries a `Status`
+line.** S1, S2, S4 and S5 are resolved — the through-line above no longer holds:
+packages and the database are GPG-signed, clients enforce
+`Required DatabaseRequired`, and CI gates every push. Remediation units and the
+live-host runbook: [AUDIT-REMEDIATION.md](AUDIT-REMEDIATION.md).
+
 ## S1 — A chain of trust exists and its root is distributed to nothing
 
 There is a real two-tier PKI in Vault, and it is already in production use:
@@ -59,6 +65,17 @@ operational signer. If the intermediate is ever compromised, it is revoked and
 re-issued under the same root and machines re-trust nothing; if the root were an
 operational signer, the same event would mean re-anchoring every machine.
 
+**Status — RESOLVED (`1805903`, PR #1), with the fix above corrected (U9).**
+`appsynergy-ca-certificates` ships and is pulled in by `build-repo.sh`,
+`build-iso.sh`, `stage-rescue-payload.sh` and the installer. The fix as written —
+root **and** intermediate into `anchors/` — was itself the defect: an anchor is an
+independent trust root, so anything the intermediate signed was trusted outside
+the intended chain and a compromised intermediate equalled a compromised root,
+contradicting the issuance policy directly above. Since `1-3` only the Root is in
+`anchors/`; the Intermediate installs to the `trust-source/` top level, which
+`update-ca-trust(8)` gives **neutral trust** — known to the system for chain
+construction, trusted for nothing. That still fixes the leaf-only case (vault-k2).
+
 ## S2 — Packages are unsigned, and signing must anchor to the chain above
 
 `SigLevel = Optional TrustAll` in `appsynergy-mirrorlist/appsynergy.conf`, live on
@@ -95,6 +112,16 @@ cert from `pki_int` → generate the GPG key, private half in Vault → ship
 flip `SigLevel = Required DatabaseRequired`. Flipping `SigLevel` before the
 keyring lands locks every machine out of the repo.
 
+**Status — RESOLVED (PRs #1, #4, #5, #9).** `appsynergy-keyring` ships key
+`3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1`; `build-repo.sh` signs every package
+and `repo-add --sign`s the db by default; `publish-repo.sh` hard-fails on a
+missing `.sig` (`ALLOW_UNSIGNED=1` the only override) and tail-calls
+`verify-repo.sh`. The mirrorlist drop-in is `SigLevel = Required DatabaseRequired`
+and `1-6` migrates legacy inline TrustAll sections on upgrade; the installer never
+writes TrustAll. Both production servers enforce it. The only surviving TrustAll is
+`desktop/iso/pacman.conf`, the build-time `file://` staging repo. **Still open:**
+the cosign/`pki_int` attestation bridge — the keyring remains self-asserting.
+
 ## S3 — No published package can be rebuilt from this repository
 
 `KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"` in every kernel
@@ -107,6 +134,14 @@ currently running in production. There is no way to answer "what source produced
 
 **Fix:** pin the upstream `pkgver`/commit in-tree; fetch it in the PKGBUILD's
 `source=()` with a checksum rather than assuming a sibling directory.
+
+**Status — PARTIAL (PR #1).** Provenance is pinned: `kernel/upstream/PIN` records
+`UPSTREAM_COMMIT=74d5bae` / `PKGVER=7.1.5` alongside committed patches and both
+shipped `.config`s, the build scripts abort on pin mismatch unless
+`PIN_OVERRIDE=1`, and `check.sh` stage `kernel-pin` asserts it. **Still open:** the
+path half — `KDIR` still defaults to `/home/imma/src/linux-cachyos/linux-cachyos`,
+no kernel PKGBUILD fetches source with a checksum, and `kernel-pin` returns 0
+silently when `$KDIR/.git` is absent, so CI never exercises it.
 
 ## S4 — PKGBUILDs read from `$startdir`, which defeats verification
 
@@ -121,6 +156,11 @@ any CI that does not run inside a git checkout at exactly the right path.
 
 **Fix:** declare the real files in `source=()` with `sha256sums`, and use
 `$srcdir` in `package()` — the pattern `appsynergy-mirrorlist` already follows.
+
+**Status — RESOLVED (PR #1).** All three declare a generated payload tarball with a
+real `sha256sums` and unpack from `$srcdir`; `packages/scripts/make-srctars.sh`
+regenerates them deterministically and `check.sh` stage `tarball-sums` fails on
+drift. No `$startdir` read remains.
 
 ## S5 — No CI, no lint, no gate
 
@@ -137,6 +177,12 @@ caught by a modest pipeline.
 `cargo test`, builds all `any/` packages in a clean chroot, and finishes with
 `verify-repo.sh`. Nothing publishes unless it passes.
 
+**Status — RESOLVED (PRs #2, #10, #11, #13).** `scripts/check.sh` is the release
+gate, 8 stages: `shellcheck` (discovers every script), `cargo-test`,
+`tarball-sums`, `makepkg-all`, `namcap`, `kernel-pin`, `kernel-netfilter`,
+`branding-glob`. `.gitea/workflows/ci.yml` runs exactly it on every push and PR,
+`runs-on: arch-host`, on an act_runner pod on the skylake k3s cluster (`ci/`).
+
 ## S6 — Build host, release host and daily driver are one machine
 
 `build-repo.sh` scrapes `/home/imma/src/linux-cachyos/...` for kernels; the same
@@ -148,6 +194,11 @@ clean-room guarantee: builds inherit whatever is installed that day.
 **Fix:** builds in a container/chroot; ideally a dedicated builder. This is what
 makes S3 and S4 actually hold.
 
+**Status — PARTIAL (PRs #10, #11).** Verification left the daily driver: the
+act_runner pod on the OVH k3s node builds and namcaps all six `any/` packages.
+**Still open:** release did not. Signing uses the workstation's `GPGKEY`,
+publishing its `GITEA_TOKEN`, and kernel packages still come from its `$KDIR`.
+
 ## S7 — No release identity
 
 Zero git tags. No changelog. `pkgrel` is the only version signal, and nothing ties
@@ -156,6 +207,10 @@ a published package to a commit. "What shipped last Tuesday" is unanswerable.
 **Fix:** tag releases; embed the git SHA into each package (a
 `/usr/share/appsynergy/BUILDINFO`, or in `pkgdesc`); keep a changelog that names
 the packages a release moved.
+
+**Status — PARTIAL (PR #1).** Tag `v2026.08.06` exists and `CHANGELOG.md` names the
+packages each release moved. **Still open:** no git SHA is embedded in package
+metadata, so a package on a host still cannot name the commit that built it.
 
 ## S8 — Developer paths still hardcoded in ~10 places
 
@@ -173,6 +228,12 @@ being present, and produces a different image if it is not.
 
 **Fix:** env vars with no default, failing loudly when unset, or vendor the input.
 
+**Status — PARTIAL, 1 of 4 rows.** Row 2 fixed: `stage-k3s.sh` now requires an
+explicit `K3S_CONFIG_SRC` or writes an inline default, so the ISO no longer
+silently depends on another checkout. Rows 1, 3 and 4 stand — row 1 is now 7 sites
+(both kernel build scripts, both install scripts, `build-repo.sh`, `build-iso.sh`,
+`check.sh`).
+
 ## S9 — Publishing is destructive; there is no rollback
 
 `publish-repo.sh` replaces the database in place. There is no way to serve
@@ -182,6 +243,12 @@ and recovery is manual on each host.
 **Fix:** date-stamped repo snapshots with `latest` as a pointer, so rollback is
 repointing rather than rebuilding. Keep the previous N package versions published
 so `pacman -U` of a known-good version always works.
+
+**Status — PARTIAL (PR #1).** `publish-repo.sh` leaves a dated
+`appsynergy.db-YYYYmmdd-HHMM` snapshot after each publish and never deletes package
+files, so `pacman -U` of an older version still works. **Still open:** the live db
+is replaced in place, there is no `latest` pointer to repoint, and no retention
+policy — rollback is still manual on each host.
 
 ## S10 — 111 MB of git history is mostly rejected artwork
 
@@ -195,6 +262,9 @@ now lives correctly in `appsynergy-wallpapers`.
 **Fix:** keep future candidates out of git (separate assets store); accept the
 existing history unless a rewrite is worth the disruption.
 
+**Status — STILL TRUE.** `.git` is 113 MB; no history rewrite was attempted.
+`brand-review/` is review-only and never read at runtime.
+
 ## S11 — One flat repo serves two products
 
 `[appsynergy]` carries desktop kernels, server kernels and graphical packages in
@@ -204,6 +274,11 @@ a human to install one by hand.
 
 **Fix:** only if the hard wall is wanted — separate `appsynergy`/`appsynergy-desktop`
 repos. Not obviously worth doubling the publish surface at three machines.
+
+**Status — STILL TRUE, and still not worth it.** One flat repo, one namespace. The
+identity split (`appsynergy-branding` vs `appsynergy-branding-desktop` +
+`appsynergy-wallpapers`) keeps graphical packages off servers by audience rather
+than by repo.
 
 ## Unused capability, stated plainly
 
@@ -218,11 +293,16 @@ chain should be carrying and is not:
 - **Artifact provenance** — `cosign` is installed and listed for the server
   variant, signing nothing.
 
+**Status.** The CA is now doing work: `appsynergy-ca-certificates` distributes the
+Root as a trust anchor to every variant, so internal TLS can be verified instead of
+pinned or `-k`'d. SecureBoot, mTLS host identity and `cosign` provenance are all
+still unwired.
+
 ## Order of work
 
-1. **S1 `appsynergy-ca-certificates`** — smallest change, largest immediate gain; makes every later X.509 step verifiable instead of pinned.
-2. **S2 keyring + signing, anchored to `pki_int`** — the only finding with a live attacker in the threat model.
-3. **S3/S4 pinned, declared sources** — without these, signing certifies something unrebuildable.
-4. **S5 CI** — locks 1–3 in and stops regressions.
-5. **S9 repo snapshots** — cheap, and the difference between a bad publish being an inconvenience or an outage.
-6. S6, S7, S8, S10, S11 as capacity allows.
+1. ~~**S1 `appsynergy-ca-certificates`**~~ — done; Root anchored, Intermediate neutral.
+2. **S2 keyring + signing** — GPG half done and enforced; the `pki_int` anchoring of the keyring is not.
+3. **S3/S4 pinned, declared sources** — S4 done; S3 pinned but still builds from a sibling checkout.
+4. ~~**S5 CI**~~ — done; `check.sh` runs on every push.
+5. **S9 repo snapshots** — dated snapshots exist; no `latest` pointer, so rollback stays manual.
+6. S6, S7, S8, S10, S11 as capacity allows — S6/S7/S8 partially advanced, S10/S11 untouched.

@@ -212,12 +212,12 @@ if [[ -d "$HOME_U/.config/BraveSoftware" ]]; then
 fi
 
 log "==> 04-optional/iso"
-ISO=$(ls -1t "$PROJECTS/appsynergy-desktop/out"/appsynergy-linux-*.iso 2>/dev/null | head -1 || true)
+ISO=$(ls -1t "$PROJECTS/appsynergy-linux/desktop/out"/appsynergy-linux-*.iso 2>/dev/null | head -1 || true)
 if [[ -n "${ISO:-}" && -f "$ISO" ]]; then
   rsync -aH --info=progress2 "$ISO" "$DEST/04-optional/iso/" | tee -a "$LOG"
   log "  iso: $(basename "$ISO")"
 else
-  log "  no ISO found under appsynergy-desktop/out"
+  log "  no ISO found under appsynergy-linux/desktop/out"
 fi
 
 # CLI locations note (reinstall preferred)

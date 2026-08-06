@@ -11,29 +11,33 @@ Public pacman repository for AppSynergy Linux (desktop workstation image).
 | Version / arch path | `x86_64` |
 | **Server URL** | `https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64` |
 
-Add to `/etc/pacman.conf`:
+Install `appsynergy-mirrorlist`; it owns the repo section and appends the `Include` to `/etc/pacman.conf` in `post_install` (pacman has no `pacman.conf.d` convention). What it ships as `/etc/pacman.conf.d/appsynergy.conf`:
 
 ```ini
 [appsynergy]
-SigLevel = Optional TrustAll
-Server = https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64
+SigLevel = Required DatabaseRequired
+Include = /etc/pacman.d/appsynergy-mirrorlist
 ```
 
-Or install the `appsynergy-mirrorlist` package (ships that snippet).
-
-Packages are **unsigned** until `appsynergy-keyring` ships; use `SigLevel = Optional TrustAll` only for `[appsynergy]`.
+Packages **and** the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1` (`appsynergy-keyring`); clients enforce that signature. `build-repo.sh` signs by default and `publish-repo.sh` refuses to publish a missing `.sig`. Add the key with `pacman-key` before the first sync — a signed database with an unknown key wedges every transaction, including `-U`.
 
 ## What is published
 
 | Package | Role |
 |---------|------|
 | `linux-appsynergy` / headers | Desktop workstation kernel (iGPU-tuned) |
-| `linux-appsynergy-server` / headers | OVH / tunnel server kernel (same series; `server.fragment`) |
+| `linux-appsynergy-server-skylake` / headers | OVH server kernel |
+| `linux-appsynergy-server-tigerlake` / headers | NUC server kernel |
+| `appsynergy-keyring` | The GPG key every other package is verified against |
+| `appsynergy-ca-certificates` | AppSynergy Root CA trust anchor (+ Intermediate as chain filler) |
 | `appsynergy-mirrorlist` | Registers the `[appsynergy]` repo |
-| `appsynergy-branding` | os-release + motd + shell policy |
+| `appsynergy-branding` | os-release + motd + greeting — every machine |
+| `appsynergy-branding-desktop` | icons, start entry, Plymouth — graphical installs only |
+| `appsynergy-wallpapers` | desktop + lock wallpapers — graphical installs only |
 
-Server kernel build: `./scripts/build-linux-appsynergy-server.sh`  
-(fragment: `/home/imma/projects/appsynergy-linux/kernel/configs/server.fragment`).
+Server kernel build: `./scripts/build-linux-appsynergy-server.sh` (both flavors) or
+`./scripts/build-linux-appsynergy-server-flavor.sh skylake|tigerlake`; fragments live in
+`kernel/configs/`.
 
 Brave/Thorium stay as local USB payload or AUR for now (large / AUR).
 

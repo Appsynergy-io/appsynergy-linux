@@ -17,14 +17,14 @@ External 18-agent audit (2026-08) → three read-only verification sweeps confir
 | U0 publish-guard | #4 | publish refuses missing pkg/db sigs (`ALLOW_UNSIGNED=1` escape); every publish tail-calls verify-repo.sh; db-sig reachability checks; SIGN=0 banner |
 | U8 mirrorlist-upgrade | #5 | legacy inline TrustAll sections migrated to Required on package upgrade (guarded on keyring populate; validated, backed up, idempotent) |
 | U5 rescue-payload | #6 | `--disks` for multi-disk; k3s staged + gated in payload (sha256-pinned, verified against upstream `sha256sum-amd64.txt`); version-anchored branding globs incl. the destructive prune; both RESCUE-INSTALL.md copies fixed |
-| U1 installer-trust | — | installer installs keyring+mirrorlist, asserts fingerprint, hard `pacman -Sy`; never writes TrustAll; keyring staged on ISO; preflight bail if keyring pkg missing (before any disk touch) |
-| U2 input-validation | — | username/hostname/timezone/locale/keymap allowlist-validated at config load; kills `format!`→`bash -c` injection |
-| U3 disk-safety | — | explicit disk-source precedence (typed flag wins); `--yes` refuses auto-detected disks; real block-device + partition + live-medium rejection |
-| U4 robustness | — | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
-| U6 gate-lints | — | shellcheck coverage for rescue/write-usb/stage-k3s; unanchored-glob lint; write-usb removability gate |
-| U7 kernel-tigerlake | — | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. Kernel built+published; **NUC reboot deferred to maintenance window** |
-| U9 docs+CA | — | docs teach Required; stale paths fixed; one-secret keyfile model documented honestly; intermediate CA no longer a trust anchor |
-| CI | — | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard resource limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
+| U1 installer-trust | #9 | installer installs keyring+mirrorlist, asserts fingerprint, best-effort `pacman -Sy` to prove the signed db (offline installs still succeed); never writes TrustAll; keyring staged on ISO; preflight bail if keyring pkg missing (before any disk touch) |
+| U2 input-validation | #12 | username/hostname/timezone/locale/keymap allowlist-validated at config load; kills `format!`→`bash -c` injection |
+| U3 disk-safety | #14 | explicit disk-source precedence (typed flag wins); `--yes` refuses auto-detected disks; real block-device + partition + live-medium rejection |
+| U4 robustness | **in flight** (`fd277f7`, `dev-07f3e323`) | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
+| U6 gate-lints | #13 | shellcheck discovers every script (incl. extensionless, by shebang); unanchored-glob lint; write-usb removability gate |
+| U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. Kernel built+published; **NUC reboot deferred to maintenance window** |
+| U9 docs+CA | **in flight** | docs teach Required signatures; pre-rename paths fixed; one-secret keyfile model documented honestly; `appsynergy-ca-certificates` 1-3 makes the Root the only anchor, Intermediate neutral-trust chain filler |
+| CI | #10, #11 | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard resource limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
 
 ## Live-host runbook (executed items)
 
