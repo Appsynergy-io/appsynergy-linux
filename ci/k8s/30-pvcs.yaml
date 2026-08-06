@@ -1,0 +1,52 @@
+# Storage. StorageClass local-path (rancher.io/local-path) is the cluster default
+# and is WaitForFirstConsumer — these three PVCs stay Pending until the Deployment
+# schedules, which is expected, not a fault. Node has ~405G free on /.
+#
+# All three are RWO and bound to one pod by design; combined with strategy:Recreate
+# that is what stops two act_runner processes sharing one registration.
+---
+# 30Gi: one job workspace (git checkout ~200M) + makepkg src/pkg trees for six
+# any/ packages (wallpaper PNG masters dominate, ~1G per build) + the cargo target
+# dir for the installer, plus act_runner's actions-cache blobs under /data/cache.
+# Headroom is for the abandoned workdirs a killed job leaves behind.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: act-runner-work
+  namespace: ci
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 30Gi
+---
+# 10Gi: pacman package cache. Jobs run as uid 1000 with a read-only rootfs and so
+# cannot pacman — this exists so image-refresh/maintenance work and makepkg source
+# downloads have a durable, writable cache instead of re-fetching every run.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: act-runner-pacman-cache
+  namespace: ci
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+# 10Gi: CARGO_HOME. The installer's 23-crate lockfile is small, but the registry
+# index plus a stable toolchain's build artifacts grow without bound across
+# dependency bumps; 10Gi means the cache is never the thing that fails a build.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: act-runner-cargo-cache
+  namespace: ci
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
