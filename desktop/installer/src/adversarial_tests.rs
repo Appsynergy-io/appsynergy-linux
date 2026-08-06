@@ -250,6 +250,120 @@ fn branding_globs_are_version_anchored() {
 }
 
 #[test]
+fn installer_never_writes_trustall() {
+    // An inline TrustAll section both disables signature checking on the installed
+    // system and makes appsynergy-mirrorlist's post_install no-op, so the packaged
+    // `Required DatabaseRequired` drop-in never takes effect.
+    let src = include_str!("main.rs");
+    assert!(
+        !src.contains("TrustAll"),
+        "installer must never write a TrustAll repo section"
+    );
+}
+
+#[test]
+fn installer_populates_keyring() {
+    let src = include_str!("main.rs");
+    assert!(
+        src.contains("pacman-key --populate appsynergy"),
+        "installer must populate the appsynergy keyring in the target"
+    );
+    assert!(
+        src.contains("pacman-key --list-keys {APPSYNERGY_KEY_FP}"),
+        "keyring population must be hard-asserted against the pinned fingerprint"
+    );
+    assert!(
+        src.contains("appsynergy-keyring-[0-9]*.pkg.tar.zst"),
+        "keyring package must be installed from the offline payload"
+    );
+    assert!(
+        src.contains("3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1"),
+        "the signing key fingerprint must be pinned in the installer"
+    );
+}
+
+#[test]
+fn keyring_assert_is_hard_database_sync_is_best_effort() {
+    // Two different invariants in one step. The keyring must be a hard failure: an
+    // unpopulated keyring under a `Required` section leaves a committed disk unable to
+    // run pacman at all. The database sync must NOT be — it is the only networked call
+    // here, and this installer is offline-capable, so making it fatal kills a
+    // disconnected install after the disks are already partitioned.
+    let src = include_str!("main.rs");
+    let start = src
+        .find("fn register_appsynergy_repo")
+        .expect("invariant: repo registration step exists");
+    let body = &src[start..];
+    let body = &body[..body.find("\nfn ").expect("invariant: function body ends")];
+
+    let assertion = &body[body
+        .find("pacman-key --list-keys")
+        .expect("invariant: keyring is asserted")..];
+    let stmt = &assertion[..assertion.find(';').expect("invariant: statement ends")];
+    assert!(
+        stmt.contains(")?"),
+        "keyring assertion must propagate with `?` (hard failure)"
+    );
+
+    assert!(
+        !body.contains("cmd::arch_chroot(&cfg.mnt, \"pacman -Sy\")?"),
+        "database sync must not be `?`-propagated — it breaks offline installs"
+    );
+    assert!(
+        body.contains("match cmd::arch_chroot(&cfg.mnt, \"pacman -Sy\")"),
+        "database sync must be attempted and its result handled, not skipped"
+    );
+    assert!(
+        body.contains("WARN: could not verify the signed [appsynergy] database"),
+        "a failed database sync must warn, never be swallowed silently"
+    );
+}
+
+#[test]
+fn keyring_fingerprint_matches_pkgbuild() {
+    // Trust is rooted in one key; a drift between installer and package means the
+    // installer asserts a fingerprint the shipped keyring does not contain.
+    let src = include_str!("main.rs");
+    let pkgbuild = include_str!("../../../packages/pkgbuilds/appsynergy-keyring/PKGBUILD");
+    let fp = src
+        .split_once("const APPSYNERGY_KEY_FP: &str = \"")
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .expect("invariant: main.rs pins the signing key fingerprint")
+        .0;
+    assert_eq!(fp.len(), 40, "fingerprint must be a full 40-hex-digit ID");
+    assert!(
+        pkgbuild.contains(fp),
+        "appsynergy-keyring PKGBUILD does not document fingerprint {fp}"
+    );
+}
+
+#[test]
+fn iso_stages_keyring() {
+    // A keyring that reaches no install path leaves the installer's hard gate
+    // failing after the disk is already partitioned.
+    let sh = include_str!("../../scripts/build-iso.sh");
+    assert!(
+        sh.contains("[appsynergy-keyring]='appsynergy-keyring-[0-9]*.pkg.tar.zst'"),
+        "build-iso.sh must stage appsynergy-keyring"
+    );
+    assert!(
+        sh.contains("packages/pkgbuilds/appsynergy-keyring"),
+        "build-iso.sh must read the keyring PKGBUILD dir as a source"
+    );
+}
+
+#[test]
+fn keyring_glob_is_version_anchored() {
+    // Same rule as branding: unanchored globs match sibling package names and
+    // corrupt both the copy and the prune that keeps only the newest release.
+    let sh = include_str!("../../scripts/build-iso.sh");
+    assert!(
+        !sh.contains("appsynergy-keyring-*"),
+        "keyring glob must be version-anchored with [0-9]"
+    );
+}
+
+#[test]
 fn pacstrap_skips_split_branding_packages() {
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding-desktop"));
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-wallpapers"));

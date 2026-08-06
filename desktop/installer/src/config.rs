@@ -14,8 +14,8 @@ pub const PKGS_DESKTOP: &str = "/etc/appsynergy/packages-target.txt";
 pub const PKGS_SERVER: &str = "/etc/appsynergy/packages-target-server.txt";
 pub const LOCAL_PKGDIR: &str = "/opt/appsynergy/pkgs";
 pub const MNT: &str = "/mnt/appsynergy";
-pub const APPSYNERGY_REPO: &str =
-    "https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64";
+// The [appsynergy] Server URL is package-owned (appsynergy-mirrorlist); the
+// installer must never carry a second copy that can drift from it.
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum Variant {
