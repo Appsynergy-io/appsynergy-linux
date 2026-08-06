@@ -66,6 +66,19 @@ for d in "$tmp"/pub/*/desc; do
 done
 shopt -u nullglob
 
+# SigLevel Required also verifies the database: pacman fetches <db>.sig next to
+# the db it synced. Both names must resolve, or every sync fails at the client.
+echo "=== database signatures ==="
+for n in appsynergy.db.sig appsynergy.db.tar.gz.sig; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$n" || echo 000)
+  if [[ "$code" == "200" ]]; then
+    echo "  ok   $n"
+  else
+    echo "  FAIL $n (HTTP $code) — SigLevel Required clients cannot verify the db"
+    rc=1
+  fi
+done
+
 if ((rc)); then
   echo
   echo "FAIL: published repo is behind or incomplete — run publish-repo.sh"
