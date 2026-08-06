@@ -15,8 +15,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 mktar() {
   local dir="$1" out="$2"; shift 2
+  # repo-root LICENSE rides at tar root so every package can install it
   tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-      -C "$ROOT/pkgbuilds/$dir" -cf "$ROOT/pkgbuilds/$dir/$out" "$@"
+      -cf "$ROOT/pkgbuilds/$dir/$out" -C "$ROOT/.." LICENSE -C "$ROOT/pkgbuilds/$dir" "$@"
   printf '  %s  %s\n' "$(sha256sum "$ROOT/pkgbuilds/$dir/$out" | cut -d' ' -f1)" "$dir/$out"
 }
 

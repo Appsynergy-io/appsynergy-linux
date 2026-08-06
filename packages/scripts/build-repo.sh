@@ -13,8 +13,13 @@ build_pkg() {
   # Copy ONLY what this build produced (makepkg --packagelist), never a dir
   # glob: pkgbuild dirs accumulate stale rels, and a glob re-imports every one
   # of them into staging where repo-add then indexes an arbitrary version.
+  # NB: --packagelist also names -debug- packages that are never created; an
+  # `[[ -f ]] &&` guard as the loop's last command returns 1 there and set -e
+  # kills the whole script silently. Use `if` (set -e exempt) and skip -debug-.
   while IFS= read -r f; do
-    [[ -f "$f" ]] && cp -a "$f" "$REPO/"
+    if [[ "$f" != *-debug-* && -f "$f" ]]; then
+      cp -a "$f" "$REPO/"
+    fi
   done < <(cd "$dir" && makepkg --packagelist 2>/dev/null)
 }
 

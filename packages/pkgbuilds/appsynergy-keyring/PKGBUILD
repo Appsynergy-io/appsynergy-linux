@@ -6,21 +6,24 @@
 # blocked on a Vault policy grant for pki_int at the time of writing.
 pkgname=appsynergy-keyring
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='AppSynergy Linux package signing keyring'
 arch=('any')
 url='https://git.appsynergy.io/imabee/appsynergy-linux'
 license=('MIT')
 install=appsynergy-keyring.install
-source=('appsynergy.gpg' 'appsynergy-trusted' 'appsynergy-revoked' 'appsynergy-packaging.key')
+source=('appsynergy.gpg' 'appsynergy-trusted' 'appsynergy-revoked' 'appsynergy-packaging.key' 'LICENSE')
 sha256sums=('28a10f993fbf37bbbb6da6bdb0a4ea9557bd95db6b4ac4d196ffb2e95511b347'
             'b90ec7f484ccc8dc6430081fbcd51b817ec04302c72f031580f98cab3779dddc'
             'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-            '9549e6402b4a498fa5240f8dda5a63f7ec29bd6b814bd97e97a15a05e4b152cd')
+            '9549e6402b4a498fa5240f8dda5a63f7ec29bd6b814bd97e97a15a05e4b152cd'
+            '34ac2e1db0fdddd3ff94d39eb16922f92a6dc7fd5e74843ac26e619b3ea73e99')
 
 package() {
   install -Dm644 "$srcdir/appsynergy.gpg" "$pkgdir/usr/share/pacman/keyrings/appsynergy.gpg"
   install -Dm644 "$srcdir/appsynergy-trusted" "$pkgdir/usr/share/pacman/keyrings/appsynergy-trusted"
   install -Dm644 "$srcdir/appsynergy-revoked" "$pkgdir/usr/share/pacman/keyrings/appsynergy-revoked"
   install -Dm644 "$srcdir/appsynergy-packaging.key" "$pkgdir/usr/share/appsynergy/appsynergy-packaging.key"
+
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/appsynergy-keyring/LICENSE"
 }
