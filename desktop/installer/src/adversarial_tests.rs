@@ -364,6 +364,30 @@ fn keyring_glob_is_version_anchored() {
 }
 
 #[test]
+fn config_load_validates_every_untrusted_identity_field() {
+    // The fix for shell injection is placement, not string escaping: validation
+    // has to sit inside Config::load, the single point CLI flags, the process
+    // environment and machine.env all funnel through. A validator that exists
+    // but is called somewhere else leaves the `bash -c` interpolations in
+    // locale_hostname and create_users reachable with an unchecked value.
+    let src = include_str!("config.rs");
+    let start = src
+        .find("fn load(cli: Cli)")
+        .expect("invariant: Config::load exists");
+    let body = &src[start..];
+    let body = &body[..body.find("\nfn ").expect("invariant: function body ends")];
+    for call in [
+        "validate::validate_hostname(&hostname)?",
+        "validate::validate_username(&user)?",
+        "validate::validate_timezone(&timezone)?",
+        "validate::validate_locale(&locale)?",
+        "validate::validate_keymap(&keymap)?",
+    ] {
+        assert!(body.contains(call), "Config::load must call `{call}`");
+    }
+}
+
+#[test]
 fn pacstrap_skips_split_branding_packages() {
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding-desktop"));
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-wallpapers"));
