@@ -1,0 +1,11 @@
+# Apply first: every other object in ci/k8s/ is namespaced here.
+# Deleting this namespace is the complete rollback for the CI runner (see ci/README.md).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ci
+  labels:
+    kubernetes.io/metadata.name: ci
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -5,18 +5,16 @@ on:
   pull_request:
 
 # The pipeline IS scripts/check.sh — run it locally before every commit.
-# CI just executes the same gate on a runner (none registered yet; this file
-# activates the moment one is — see task: k3s act_runner Deployment).
+# Executed by the self-hosted act_runner in namespace `ci` on the OVH k3s node
+# (ci/k8s/, image ci/runner/Containerfile). `arch-host` is host exec mode: the
+# job runs directly in that pod's Arch userland as uid 1000 `build`, which is
+# what makepkg requires — hence no `container:`, no pacman step, no runuser.
+# Every dependency comes from the image; adding one means rebuilding it.
+# Label must match runner.labels in ci/k8s/20-configmap-act-runner.yaml.
 jobs:
   check:
-    runs-on: ubuntu-latest
-    container: archlinux:latest
+    runs-on: arch-host
     steps:
-      - name: deps
-        run: pacman -Syu --noconfirm --needed git base-devel shellcheck namcap rust
       - uses: actions/checkout@v4
       - name: gate
-        run: |
-          useradd -m build
-          chown -R build .
-          runuser -u build -- ./scripts/check.sh
+        run: ./scripts/check.sh
