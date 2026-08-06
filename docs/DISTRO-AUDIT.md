@@ -43,11 +43,21 @@ is effectively off despite a perfectly good CA existing to enable it.
 This is the cheapest high-value fix in this document, and it is squarely a
 packaging problem — which is what this repository is for.
 
-**Fix:** an `appsynergy-ca-certificates` package installing the root to
-`/etc/ca-certificates/trust-source/anchors/appsynergy-root.crt` with
+**Fix:** an `appsynergy-ca-certificates` package installing the root **and** the
+intermediate to `/etc/ca-certificates/trust-source/anchors/` with
 `update-ca-trust` in `post_install`; add it to both target package lists so every
-variant gets it. Then drop `-k` everywhere and let pinning be defence in depth
-rather than the only defence.
+variant gets it. Shipping the intermediate too keeps validation working against
+services that present an incomplete chain (vault-k2 currently serves only its
+leaf). Then drop `-k` everywhere and let pinning be defence in depth rather than
+the only defence.
+
+**Issuance policy (locked):** every end-entity certificate — code-signing, host
+TLS, mTLS — is issued from `pki_int`, never from the root. The root key signs
+exactly one thing in its lifetime: the intermediate. The root's public
+certificate is distributed as a trust anchor; its private key is never an
+operational signer. If the intermediate is ever compromised, it is revoked and
+re-issued under the same root and machines re-trust nothing; if the root were an
+operational signer, the same event would mean re-anchoring every machine.
 
 ## S2 — Packages are unsigned, and signing must anchor to the chain above
 
