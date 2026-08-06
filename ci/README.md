@@ -18,8 +18,10 @@ container registry is enabled and wants auth, the expected good case.
 
 401 → push to `git.appsynergy.io/imabee/appsynergy-ci-runner`. Anything else (404/501)
 → registry off: `podman save | zstd`, upload as a Gitea generic package, on the node
-`zstd -d | k3s ctr images import -` (`imagePullPolicy: IfNotPresent` makes it win). A
-private repo also needs a pull Secret — commented in `k8s/40-deployment.yaml`.
+`zstd -d | k3s ctr images import -` (`imagePullPolicy: IfNotPresent` makes it win).
+
+The package is private (anonymous `GET /v2/.../manifests/<tag>` → 401), so the kubelet
+needs `gitea-registry` — created below, referenced by `k8s/40-deployment.yaml`.
 
 ## Build, push, deploy
 
@@ -30,6 +32,11 @@ podman image inspect --format '{{index .RepoDigests 0}}' \
   git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-1     # repin the Deployment to this digest
 
 kubectl apply -f ci/k8s/00-namespace.yaml
+# Pull credentials for the private package. --docker-password reads the PAT from the
+# environment, so the value is never typed, echoed, or stored outside the Secret.
+kubectl -n ci create secret docker-registry gitea-registry \
+  --docker-server=git.appsynergy.io --docker-username=imabee \
+  --docker-password="$GITEA_TOKEN"
 # Token is minted, piped, consumed: never echoed, never written to a file, never in
 # shell history. $GITEA_TOKEN is a PAT loaded by reference (sdx / `set -a; . …`).
 curl -sS -X POST -H "Authorization: token $GITEA_TOKEN" \

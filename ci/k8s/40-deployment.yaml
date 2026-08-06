@@ -26,12 +26,14 @@ spec:
       # No priorityClassName: default priority 0. This runner must never preempt
       # control-plane, gitea, mail, monitoring, router or wg.
       automountServiceAccountToken: false
-      # If the Gitea package is private the pull needs credentials. Create them
-      # out-of-band (`kubectl -n ci create secret docker-registry gitea-registry ...`)
-      # and uncomment — naming a Secret that does not exist makes the pull fail
-      # with a misleading ImagePullBackOff instead of "unauthorized".
-      # imagePullSecrets:
-      #   - name: gitea-registry
+      # The Gitea package IS private — an anonymous manifest GET returns 401, so
+      # the kubelet cannot pull without credentials. The Secret is created
+      # out-of-band (see ci/README.md; the token never lands in this repo):
+      #   kubectl -n ci create secret docker-registry gitea-registry \
+      #     --docker-server=git.appsynergy.io --docker-username=imabee \
+      #     --docker-password=<token from sdx, piped, never echoed>
+      imagePullSecrets:
+        - name: gitea-registry
       # > runner.shutdown_timeout (5m) in the ConfigMap, so a job in flight is
       # drained by act_runner rather than SIGKILLed by the kubelet.
       terminationGracePeriodSeconds: 330
