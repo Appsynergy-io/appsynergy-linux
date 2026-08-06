@@ -130,4 +130,8 @@ protobuf
 # ufw (nftables only)
 
 # --- AppSynergy identity (NOT pacstrap'd) ---
-# appsynergy-branding / appsynergy-mirrorlist installed post-pacstrap
+# appsynergy-branding / appsynergy-mirrorlist installed post-pacstrap.
+# NOT on server: appsynergy-branding-desktop, appsynergy-wallpapers — Plasma
+# icons, start entry, Plymouth theme and 23M of wallpapers are desktop-only.
+# Keeping them off means cosmetic changes never touch a production server, and
+# a branding upgrade no longer triggers mkinitcpio -P here.

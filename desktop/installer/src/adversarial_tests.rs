@@ -202,6 +202,60 @@ fn branding_overwrite_flag_is_required_contract() {
 }
 
 #[test]
+fn server_variant_gets_no_graphical_branding() {
+    // The split's whole point: a headless server must never pull Plasma icons,
+    // the Plymouth theme or 23M of wallpapers, and must not rebuild its
+    // initramfs because a wallpaper changed.
+    let src = include_str!("main.rs");
+    assert!(
+        src.contains("let desktop = !cfg.variant.is_server();"),
+        "install_branding must gate the graphical half on variant"
+    );
+    // Assert the call sites, not prose: every place the graphical packages are
+    // actually named for install must sit after the variant gate.
+    let gate = src
+        .find("let desktop = !cfg.variant.is_server();")
+        .expect("gate");
+    let gated = &src[gate..];
+    for call in [
+        "names.push(\"appsynergy-branding-desktop\")",
+        "names.push(\"appsynergy-wallpapers\")",
+        "appsynergy-branding-desktop-*.pkg.tar.zst",
+        "appsynergy-wallpapers-*.pkg.tar.zst",
+    ] {
+        assert!(
+            gated.contains(call),
+            "`{call}` must appear after the server/desktop gate"
+        );
+        assert!(
+            !src[..gate].contains(call),
+            "`{call}` must not be reachable before the gate"
+        );
+    }
+}
+
+#[test]
+fn branding_globs_are_version_anchored() {
+    // "appsynergy-branding-*" also matches "appsynergy-branding-desktop-*",
+    // which would drag the graphical package onto a server. Anchor on [0-9].
+    let src = include_str!("main.rs");
+    assert!(
+        src.contains("appsynergy-branding-[0-9]*.pkg.tar.zst"),
+        "identity glob must be version-anchored"
+    );
+    assert!(
+        !src.contains("appsynergy-branding-*.pkg.tar.zst"),
+        "unanchored appsynergy-branding-* glob also matches -desktop-"
+    );
+}
+
+#[test]
+fn pacstrap_skips_split_branding_packages() {
+    assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding-desktop"));
+    assert!(disk::should_skip_pacstrap_pkg("appsynergy-wallpapers"));
+}
+
+#[test]
 fn step_failures_are_named() {
     let src = include_str!("main.rs");
     assert!(src.contains("step `{name}` failed") || src.contains("step `"));

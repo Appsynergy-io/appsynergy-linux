@@ -176,7 +176,10 @@ pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
     matches!(
         name,
         "appsynergy-branding"
+            | "appsynergy-branding-desktop"
+            | "appsynergy-wallpapers"
             | "appsynergy-mirrorlist"
+            | "appsynergy-ca-certificates"
             | "linux-appsynergy"
             | "linux-appsynergy-headers"
             | "linux-appsynergy-server"

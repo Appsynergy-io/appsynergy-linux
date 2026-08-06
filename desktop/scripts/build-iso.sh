@@ -39,7 +39,8 @@ file "$INSTALLER_BIN"
 "$INSTALLER_BIN" --help | head -5 || true
 
 # Refresh local packages into profile (kernel, branding, browsers)
-SRC_PKG=/home/imma/src/linux-cachyos/linux-cachyos
+# Kernel build tree (host-local; see kernel/upstream/PIN for what it must contain)
+SRC_PKG="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
 PKG_REPO="$MONO/packages/repo/x86_64"
 # pacman.conf cannot express a relative path, so its [appsynergy] Server is
 # absolute. Fail loudly if it drifts from PKG_REPO — a stale path silently
@@ -79,22 +80,35 @@ for src in "$PKG_REPO" "$SRC_PKG"; do
     fi
   done
 done
-# Branding + mirrorlist (required offline after pacstrap)
-for src in "$PKG_REPO" "$MONO/packages/pkgbuilds/appsynergy-branding" \
-           "$MONO/packages/pkgbuilds/appsynergy-mirrorlist"; do
-  if compgen -G "$src/appsynergy-branding-"*.pkg.tar.zst > /dev/null; then
-    cp -a "$src"/appsynergy-branding-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  fi
-  if compgen -G "$src/appsynergy-mirrorlist-"*.pkg.tar.zst > /dev/null; then
-    cp -a "$src"/appsynergy-mirrorlist-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  fi
+# AppSynergy identity packages (required offline after pacstrap).
+# Globs are version-anchored with [0-9]: a bare appsynergy-branding-* also
+# matches appsynergy-branding-desktop-*, which would corrupt both the copy below
+# and the prune that follows (the prune would keep -desktop and delete identity).
+declare -A PKG_GLOB=(
+  [appsynergy-branding]='appsynergy-branding-[0-9]*.pkg.tar.zst'
+  [appsynergy-branding-desktop]='appsynergy-branding-desktop-[0-9]*.pkg.tar.zst'
+  [appsynergy-wallpapers]='appsynergy-wallpapers-[0-9]*.pkg.tar.zst'
+  [appsynergy-mirrorlist]='appsynergy-mirrorlist-[0-9]*.pkg.tar.zst'
+  [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
+)
+for src in "$PKG_REPO" \
+           "$MONO/packages/pkgbuilds/appsynergy-branding" \
+           "$MONO/packages/pkgbuilds/appsynergy-branding-desktop" \
+           "$MONO/packages/pkgbuilds/appsynergy-wallpapers" \
+           "$MONO/packages/pkgbuilds/appsynergy-mirrorlist" \
+           "$MONO/packages/pkgbuilds/appsynergy-ca-certificates"; do
+  for base in "${!PKG_GLOB[@]}"; do
+    if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
+      cp -a "$src"/${PKG_GLOB[$base]} "$DST_PKG/" 2>/dev/null || true
+    fi
+  done
 done
 # do not ship dbg into ISO
 rm -f "$DST_PKG"/*-dbg-*.pkg.tar.zst
 # Keep only the newest release of each package: build-iso.sh only ever copies in,
 # so stale versions accumulate and pacman -U on the target gets ambiguous input.
-for base in appsynergy-branding appsynergy-mirrorlist; do
-  mapfile -t old < <(ls -1v "$DST_PKG/$base"-*.pkg.tar.zst 2>/dev/null | head -n -1)
+for base in "${!PKG_GLOB[@]}"; do
+  mapfile -t old < <(ls -1v "$DST_PKG"/${PKG_GLOB[$base]} 2>/dev/null | head -n -1)
   for f in "${old[@]:-}"; do
     [[ -n "$f" ]] && { echo "  prune stale $(basename "$f")"; rm -f "$f"; }
   done

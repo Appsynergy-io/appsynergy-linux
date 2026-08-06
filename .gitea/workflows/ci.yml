@@ -1,0 +1,52 @@
+name: ci
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: deps
+        run: pacman -Syu --noconfirm --needed git base-devel shellcheck namcap rust
+
+      - uses: actions/checkout@v4
+
+      - name: shellcheck release-critical scripts
+        run: |
+          shellcheck -S error \
+            packages/scripts/*.sh \
+            desktop/scripts/build-iso.sh desktop/scripts/run-iso-build.sh \
+            desktop/scripts/stage-rescue-payload.sh
+
+      - name: installer tests
+        run: cd desktop/installer && cargo test --locked
+
+      - name: payload tarballs are deterministic and match PKGBUILD sums
+        run: |
+          packages/scripts/make-srctars.sh
+          for p in appsynergy-branding appsynergy-branding-desktop appsynergy-wallpapers; do
+            d=packages/pkgbuilds/$p
+            tar=$(sed -n "s/^source=('\(.*\)')/\1/p" $d/PKGBUILD)
+            want=$(sed -n "s/^sha256sums=('\([0-9a-f]*\)')/\1/p" $d/PKGBUILD)
+            have=$(sha256sum $d/$tar | cut -d' ' -f1)
+            [ "$want" = "$have" ] || { echo "SUM DRIFT in $p: PKGBUILD=$want actual=$have — assets changed without updating the PKGBUILD"; exit 1; }
+          done
+
+      - name: build any/ packages (unsigned; signing is a publish-host step)
+        run: |
+          useradd -m build
+          chown -R build .
+          for p in appsynergy-mirrorlist appsynergy-ca-certificates appsynergy-keyring \
+                   appsynergy-branding appsynergy-wallpapers appsynergy-branding-desktop; do
+            (cd packages/pkgbuilds/$p && runuser -u build -- makepkg -f --noconfirm -d)
+          done
+
+      - name: namcap lint
+        run: |
+          # informational failures only on errors (E:), warnings reported
+          out=$(namcap packages/pkgbuilds/*/*.pkg.tar.zst 2>&1) || true
+          echo "$out"
+          echo "$out" | grep -q " E: " && exit 1 || true

@@ -63,10 +63,14 @@ UNIT
 fi
 [[ -f "$DEST/k3s.service.env" ]] || { : >"$DEST/k3s.service.env"; chmod 400 "$DEST/k3s.service.env"; }
 
-# Default server config (no Traefik/ServiceLB) if missing
+# Default server config (no Traefik/ServiceLB) if missing.
+# K3S_CONFIG_SRC is an EXPLICIT opt-in to pull config from another checkout —
+# the old silent /home/imma/projects/appsynergy-rs fallback made two ISO builds
+# from the same commit differ depending on an unrelated repo's presence.
 if [[ ! -f "$CFG" ]]; then
-  if [[ -f /home/imma/projects/appsynergy-rs/ops/k3s/config.yaml ]]; then
-    cp -a /home/imma/projects/appsynergy-rs/ops/k3s/config.yaml "$CFG"
+  if [[ -n "${K3S_CONFIG_SRC:-}" && -f "$K3S_CONFIG_SRC" ]]; then
+    echo "stage-k3s: using external K3S_CONFIG_SRC=$K3S_CONFIG_SRC"
+    cp -a "$K3S_CONFIG_SRC" "$CFG"
   else
     cat >"$CFG" <<'CFG'
 disable:

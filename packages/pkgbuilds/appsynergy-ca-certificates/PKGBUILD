@@ -1,0 +1,26 @@
+# Maintainer: AppSynergy
+# Trust anchors for the AppSynergy PKI (both variants, desktop and server).
+# Certificates are PUBLIC material, exported from vault-k2 pki_int/ca_chain.
+#
+# Issuance policy (docs/DISTRO-AUDIT.md S1): end-entity certs are issued from
+# the Intermediate only; the Root signs nothing operational. The intermediate
+# ships too because some services (vault-k2 itself) present only their leaf.
+pkgname=appsynergy-ca-certificates
+pkgver=1
+pkgrel=1
+pkgdesc='AppSynergy Root + Intermediate CA as system trust anchors'
+arch=('any')
+url='https://git.appsynergy.io/imabee/appsynergy-linux'
+license=('MIT')
+depends=('ca-certificates-utils')
+install=appsynergy-ca-certificates.install
+source=('appsynergy-root-ca.crt' 'appsynergy-intermediate-ca.crt')
+sha256sums=('457887042b024d7b445d1c25cbfdbd294066183b6b3f8b62320768dc8d1639d1'
+            'a8a7e2d3dfda6f0842ff491d5eeb210a49775bf47753a2b6de8eb25eb81707b4')
+
+package() {
+  install -Dm644 "$srcdir/appsynergy-root-ca.crt" \
+    "$pkgdir/etc/ca-certificates/trust-source/anchors/appsynergy-root-ca.crt"
+  install -Dm644 "$srcdir/appsynergy-intermediate-ca.crt" \
+    "$pkgdir/etc/ca-certificates/trust-source/anchors/appsynergy-intermediate-ca.crt"
+}
