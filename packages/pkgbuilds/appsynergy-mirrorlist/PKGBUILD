@@ -1,11 +1,12 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-mirrorlist
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='Pacman mirrorlist / repo registration for AppSynergy Linux packages'
 arch=('any')
-url='https://git.appsynergy.io/imabee/appsynergy-packages'
+url='https://git.appsynergy.io/imabee/appsynergy-linux'
 license=('MIT')
+install=appsynergy-mirrorlist.install
 source=('appsynergy-mirrorlist' 'appsynergy.conf')
 sha256sums=('SKIP' 'SKIP')
 

@@ -1,0 +1,41 @@
+_marker='# AppSynergy repo (appsynergy-mirrorlist)'
+_include='Include = /etc/pacman.conf.d/appsynergy.conf'
+
+post_install() {
+  _appsynergy_wire_repo
+}
+
+post_upgrade() {
+  post_install
+}
+
+_appsynergy_wire_repo() {
+  local conf=/etc/pacman.conf drop=/etc/pacman.conf.d/appsynergy.conf
+
+  # pacman has NO pacman.conf.d convention — it reads only what pacman.conf
+  # explicitly Includes. Shipping the drop-in alone leaves it dead config and
+  # the repo invisible, which is exactly how a production server sat unable to
+  # see [appsynergy] at all while everyone assumed it was subscribed.
+  if pacman-conf --repo=appsynergy >/dev/null 2>&1; then
+    return 0   # already reachable: inline section, or an Include already present
+  fi
+
+  [[ -f $drop ]] || return 0
+
+  # Appended LAST on purpose. Repo order is priority order, so [appsynergy]
+  # lands below core/extra and can never shadow an official package.
+  printf '\n%s\n%s\n' "$_marker" "$_include" >> "$conf"
+  echo ">>> registered [appsynergy] in $conf (appended last = lowest priority)"
+  echo ">>> run 'pacman -Sy' when you want the repo database populated"
+}
+
+post_remove() {
+  local conf=/etc/pacman.conf
+  # The drop-in is gone now; pacman errors on an Include it cannot read, so the
+  # line must go too. Removes exactly the two lines this package added.
+  if grep -qxF "$_include" "$conf" 2>/dev/null; then
+    sed -i -e "\|^$(printf '%s' "$_marker" | sed 's/[][\.*^$/]/\\&/g')\$|d" \
+           -e "\|^$(printf '%s' "$_include" | sed 's/[][\.*^$/]/\\&/g')\$|d" "$conf"
+    echo ">>> removed the [appsynergy] Include from $conf"
+  fi
+}
