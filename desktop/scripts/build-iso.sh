@@ -137,7 +137,7 @@ if ! compgen -G "$DST_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst > /dev/null \
   echo "ERROR: no kernel .pkg.tar.zst in $DST_PKG — aborting"
   exit 1
 fi
-if ! compgen -G "$DST_PKG"/appsynergy-branding-*.pkg.tar.zst > /dev/null; then
+if ! compgen -G "$DST_PKG"/appsynergy-branding-[0-9]*.pkg.tar.zst > /dev/null; then
   echo "ERROR: appsynergy-branding missing from $DST_PKG — aborting"
   exit 1
 fi
@@ -146,7 +146,9 @@ fi
 # "exists in filesystem". Catch it here instead of 20s into the package install.
 echo "==> Check airootfs for package-owned files"
 conflict_found=0
-for pkg in "$PKG_REPO"/appsynergy-branding-*.pkg.tar.zst "$PKG_REPO"/appsynergy-mirrorlist-*.pkg.tar.zst; do
+for pkg in "$PKG_REPO"/appsynergy-branding-[0-9]*.pkg.tar.zst \
+           "$PKG_REPO"/appsynergy-branding-desktop-[0-9]*.pkg.tar.zst \
+           "$PKG_REPO"/appsynergy-mirrorlist-[0-9]*.pkg.tar.zst; do
   [[ -f "$pkg" ]] || continue
   while read -r pf; do
     [[ -e "$PROFILE/airootfs$pf" ]] || continue
