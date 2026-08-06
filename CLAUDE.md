@@ -5,6 +5,7 @@ AppSynergy Linux: the installer ISO, the kernels it ships, and the pacman repo t
 ## Commands
 
 ```bash
+scripts/check.sh                                       # release gate — run before every commit; CI runs exactly this
 sudo desktop/scripts/build-iso.sh                      # installer ISO -> desktop/out/
 sudo desktop/scripts/run-iso-build.sh                  # clean-build entrypoint (wipes dead work dirs)
 desktop/scripts/stage-rescue-payload.sh                # OVH rescue tarball -> desktop/out/
