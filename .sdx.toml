@@ -1,0 +1,4 @@
+# Credential references — names only, never values. Safe to commit.
+# Publish the pacman repo with:  sdx run -- packages/scripts/publish-repo.sh
+[env]
+GITEA_TOKEN = "kv/gitea"
