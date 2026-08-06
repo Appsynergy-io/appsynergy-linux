@@ -6,10 +6,20 @@ with the evidence that produced it and the fix. Severity is about *distribution*
 risk, not code style.
 
 The through-line: **no published artifact can currently be traced to, or rebuilt
-from, a commit.** Signing, reproducible builds and CI are the three legs of that,
-and all three are missing. Everything else below is secondary.
+from, a commit** — and the infrastructure to fix that is largely already owned and
+simply not connected to anything that ships.
 
-## S0 — A chain of trust exists and its root is distributed to nothing
+There is a 15-year two-tier CA in Vault, `cosign` installed on the servers, and a
+secrets manager that already holds credentials by reference. None of it touches a
+package. Meanwhile the repo serves unsigned packages under `SigLevel = TrustAll`,
+the kernel source is an untracked directory on one workstation, and no pipeline
+checks any of it. The gap is not missing capability; it is capability that stops
+at the edge of the build.
+
+Read S1–S5 as one story: distribute the trust root, sign against it, make what is
+signed rebuildable, then enforce all three mechanically. S6–S11 are hygiene.
+
+## S1 — A chain of trust exists and its root is distributed to nothing
 
 There is a real two-tier PKI in Vault, and it is already in production use:
 
@@ -39,7 +49,7 @@ packaging problem — which is what this repository is for.
 variant gets it. Then drop `-k` everywhere and let pinning be defence in depth
 rather than the only defence.
 
-## S1 — Packages are unsigned, and signing must anchor to the chain above
+## S2 — Packages are unsigned, and signing must anchor to the chain above
 
 `SigLevel = Optional TrustAll` in `appsynergy-mirrorlist/appsynergy.conf`, live on
 all three machines. No `appsynergy-keyring` package exists. No `.sig` file exists
@@ -69,13 +79,13 @@ cert from `pki_int`. Verification then chains to the AppSynergy Root CA, and the
 keyring stops being self-asserting. `cosign` v2.5.0 is already installed and
 already in `packages-target-server.txt` — the intent was there, unwired.
 
-**Fix order:** ship `appsynergy-ca-certificates` (S0) → issue the code-signing
+**Fix order:** ship `appsynergy-ca-certificates` (S1) → issue the code-signing
 cert from `pki_int` → generate the GPG key, private half in Vault → ship
 `appsynergy-keyring` → sign with `makepkg --sign` / `repo-add --sign` → only then
 flip `SigLevel = Required DatabaseRequired`. Flipping `SigLevel` before the
 keyring lands locks every machine out of the repo.
 
-## S2 — No published package can be rebuilt from this repository
+## S3 — No published package can be rebuilt from this repository
 
 `KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"` in every kernel
 build script. That path is an untracked checkout on one workstation, and no
@@ -88,7 +98,7 @@ currently running in production. There is no way to answer "what source produced
 **Fix:** pin the upstream `pkgver`/commit in-tree; fetch it in the PKGBUILD's
 `source=()` with a checksum rather than assuming a sibling directory.
 
-## S3 — PKGBUILDs read from `$startdir`, which defeats verification
+## S4 — PKGBUILDs read from `$startdir`, which defeats verification
 
 `appsynergy-branding`, `appsynergy-branding-desktop` and `appsynergy-wallpapers`
 all declare `source=()` and `sha256sums=()`, then read files out of `${startdir}`
@@ -102,7 +112,7 @@ any CI that does not run inside a git checkout at exactly the right path.
 **Fix:** declare the real files in `source=()` with `sha256sums`, and use
 `$srcdir` in `package()` — the pattern `appsynergy-mirrorlist` already follows.
 
-## S4 — No CI, no lint, no gate
+## S5 — No CI, no lint, no gate
 
 No `.github/`, `.gitea/`, `Makefile` or `justfile`. `shellcheck` is not installed.
 Only the installer has tests (63); no package has one.
@@ -117,7 +127,7 @@ caught by a modest pipeline.
 `cargo test`, builds all `any/` packages in a clean chroot, and finishes with
 `verify-repo.sh`. Nothing publishes unless it passes.
 
-## S5 — Build host, release host and daily driver are one machine
+## S6 — Build host, release host and daily driver are one machine
 
 `build-repo.sh` scrapes `/home/imma/src/linux-cachyos/...` for kernels; the same
 workstation stages, signs (once signing exists) and publishes.
@@ -126,9 +136,9 @@ A compromise of the desktop is a compromise of the distribution. There is also n
 clean-room guarantee: builds inherit whatever is installed that day.
 
 **Fix:** builds in a container/chroot; ideally a dedicated builder. This is what
-makes S2 and S3 actually hold.
+makes S3 and S4 actually hold.
 
-## S6 — No release identity
+## S7 — No release identity
 
 Zero git tags. No changelog. `pkgrel` is the only version signal, and nothing ties
 a published package to a commit. "What shipped last Tuesday" is unanswerable.
@@ -137,7 +147,7 @@ a published package to a commit. "What shipped last Tuesday" is unanswerable.
 `/usr/share/appsynergy/BUILDINFO`, or in `pkgdesc`); keep a changelog that names
 the packages a release moved.
 
-## S7 — Developer paths still hardcoded in ~10 places
+## S8 — Developer paths still hardcoded in ~10 places
 
 `CLAUDE.md` says not to reintroduce absolute paths; they are still present:
 
@@ -153,7 +163,7 @@ being present, and produces a different image if it is not.
 
 **Fix:** env vars with no default, failing loudly when unset, or vendor the input.
 
-## S8 — Publishing is destructive; there is no rollback
+## S9 — Publishing is destructive; there is no rollback
 
 `publish-repo.sh` replaces the database in place. There is no way to serve
 yesterday's repository. If a bad package ships, every machine that syncs gets it
@@ -163,7 +173,7 @@ and recovery is manual on each host.
 repointing rather than rebuilding. Keep the previous N package versions published
 so `pacman -U` of a known-good version always works.
 
-## S9 — 111 MB of git history is mostly rejected artwork
+## S10 — 111 MB of git history is mostly rejected artwork
 
 `.git` is 111 MB. The largest committed blobs are wallpaper candidates that were
 never chosen — 16 MB, 11.9 MB, 6.2 MB, and so on, roughly 50 MB of
@@ -175,7 +185,7 @@ now lives correctly in `appsynergy-wallpapers`.
 **Fix:** keep future candidates out of git (separate assets store); accept the
 existing history unless a rewrite is worth the disruption.
 
-## S10 — One flat repo serves two products
+## S11 — One flat repo serves two products
 
 `[appsynergy]` carries desktop kernels, server kernels and graphical packages in
 one namespace. Package split and the installer's variant gate make it impossible
@@ -200,9 +210,9 @@ chain should be carrying and is not:
 
 ## Order of work
 
-1. **S0 `appsynergy-ca-certificates`** — smallest change, largest immediate gain; makes every later X.509 step verifiable instead of pinned.
-2. **S1 keyring + signing, anchored to `pki_int`** — the only finding with a live attacker in the threat model.
-3. **S2/S3 pinned, declared sources** — without these, signing certifies something unrebuildable.
-4. **S4 CI** — locks 1–3 in and stops regressions.
-5. **S8 repo snapshots** — cheap, and the difference between a bad publish being an inconvenience or an outage.
-6. S5, S6, S7, S9, S10 as capacity allows.
+1. **S1 `appsynergy-ca-certificates`** — smallest change, largest immediate gain; makes every later X.509 step verifiable instead of pinned.
+2. **S2 keyring + signing, anchored to `pki_int`** — the only finding with a live attacker in the threat model.
+3. **S3/S4 pinned, declared sources** — without these, signing certifies something unrebuildable.
+4. **S5 CI** — locks 1–3 in and stops regressions.
+5. **S9 repo snapshots** — cheap, and the difference between a bad publish being an inconvenience or an outage.
+6. S6, S7, S8, S10, S11 as capacity allows.
