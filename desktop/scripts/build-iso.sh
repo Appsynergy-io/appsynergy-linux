@@ -90,13 +90,15 @@ declare -A PKG_GLOB=(
   [appsynergy-wallpapers]='appsynergy-wallpapers-[0-9]*.pkg.tar.zst'
   [appsynergy-mirrorlist]='appsynergy-mirrorlist-[0-9]*.pkg.tar.zst'
   [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
+  [appsynergy-keyring]='appsynergy-keyring-[0-9]*.pkg.tar.zst'
 )
 for src in "$PKG_REPO" \
            "$MONO/packages/pkgbuilds/appsynergy-branding" \
            "$MONO/packages/pkgbuilds/appsynergy-branding-desktop" \
            "$MONO/packages/pkgbuilds/appsynergy-wallpapers" \
            "$MONO/packages/pkgbuilds/appsynergy-mirrorlist" \
-           "$MONO/packages/pkgbuilds/appsynergy-ca-certificates"; do
+           "$MONO/packages/pkgbuilds/appsynergy-ca-certificates" \
+           "$MONO/packages/pkgbuilds/appsynergy-keyring"; do
   for base in "${!PKG_GLOB[@]}"; do
     if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
       cp -a "$src"/${PKG_GLOB[$base]} "$DST_PKG/" 2>/dev/null || true

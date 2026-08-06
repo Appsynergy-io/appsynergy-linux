@@ -22,13 +22,18 @@ mod adversarial_tests;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use config::{Cli, Config, KernelMode, Variant, APPSYNERGY_REPO};
+use config::{Cli, Config, KernelMode, Variant};
 use detect::KernelSelection;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
+
+/// Key that signs `[appsynergy]` packages and its database. Pinned here so a
+/// swapped keyring package cannot silently re-root trust; must equal the
+/// fingerprint in `packages/pkgbuilds/appsynergy-keyring/PKGBUILD`.
+const APPSYNERGY_KEY_FP: &str = "3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1";
 
 fn main() {
     if let Err(e) = try_main() {
@@ -92,6 +97,25 @@ fn try_main() -> Result<()> {
     }
     if !cfg.pkgs_file.is_file() {
         bail!("missing package list: {}", cfg.pkgs_file.display());
+    }
+    // The target's [appsynergy] section and the key that verifies it both ship in
+    // packages, so a payload/ISO built without them can only end in an unusable or
+    // untrusted repo. Fail here, before partitioning — never mid-install on a wiped disk.
+    for (pkg, pattern) in [
+        ("appsynergy-keyring", "appsynergy-keyring-[0-9]*.pkg.tar.zst"),
+        (
+            "appsynergy-mirrorlist",
+            "appsynergy-mirrorlist-[0-9]*.pkg.tar.zst",
+        ),
+    ] {
+        if list_glob(&cfg.local_pkgdir, pattern).is_empty() {
+            bail!(
+                "missing {pkg} in {} (no {pattern}).\n\
+                 Rebuild the ISO/payload with desktop/scripts/build-iso.sh: without it the \
+                 installed system cannot verify signatures for [appsynergy].",
+                cfg.local_pkgdir.display()
+            );
+        }
     }
     banner(&cfg);
     confirm(&cfg)?;
@@ -734,23 +758,67 @@ fn glob_simple(pat: &str, name: &str) -> bool {
     }
 }
 
+/// Subscribe the target to the signed `[appsynergy]` repo through the keyring.
+///
+/// The repo section is package-owned: `appsynergy-mirrorlist` post_install appends
+/// the Include whose SigLevel is `Required DatabaseRequired`, and it no-ops while
+/// `pacman-conf --repo=appsynergy` already resolves — so any section written here
+/// would permanently pin the installed system to this installer's trust choice.
+/// Runs before the first `pacman -Sy` so no database is ever fetched unverified.
 fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
     let pacman_conf = cfg.mnt.join("etc/pacman.conf");
     let text = fs::read_to_string(&pacman_conf).context("read target pacman.conf")?;
-    let mut new = text.clone();
-    if !new.lines().any(|l| l.starts_with("XferCommand")) {
-        new = new.replacen(
+    if !text.lines().any(|l| l.starts_with("XferCommand")) {
+        // Gitea's package API stalls with libalpm's downloader; curl is reliable.
+        let new = text.replacen(
             "[options]",
             "[options]\nXferCommand = /usr/bin/curl -L -C - -f --connect-timeout 30 --retry 3 -o %o %u",
             1,
         );
+        fs::write(&pacman_conf, new)?;
     }
-    if !new.contains("[appsynergy]") {
-        new.push_str(&format!(
-            "\n[appsynergy]\nSigLevel = Optional TrustAll\nServer = {APPSYNERGY_REPO}\n"
-        ));
+
+    // Preflight already proved both are present.
+    let mut local = list_glob(&cfg.local_pkgdir, "appsynergy-keyring-[0-9]*.pkg.tar.zst");
+    local.extend(list_glob(
+        &cfg.local_pkgdir,
+        "appsynergy-mirrorlist-[0-9]*.pkg.tar.zst",
+    ));
+    let dest = cfg.mnt.join("root/pkgs");
+    fs::create_dir_all(&dest)?;
+    let mut chroot_paths: Vec<String> = Vec::new();
+    for p in &local {
+        let name = p
+            .file_name()
+            .expect("invariant: list_glob only yields matched file paths");
+        fs::copy(p, dest.join(name))?;
+        chroot_paths.push(format!("/root/pkgs/{}", name.to_string_lossy()));
     }
-    fs::write(&pacman_conf, new)?;
+    cmd::arch_chroot(
+        &cfg.mnt,
+        &format!("set -e\npacman -U --noconfirm {}\n", chroot_paths.join(" ")),
+    )?;
+    // populate is idempotent and covers a keyring whose post_install ran before the
+    // trustdb existed; --list-keys is the hard gate — an unpopulated keyring makes
+    // `Required` unsatisfiable and every later pacman call fails on a committed disk.
+    cmd::arch_chroot(
+        &cfg.mnt,
+        &format!(
+            "set -e\npacman-key --populate appsynergy\npacman-key --list-keys {APPSYNERGY_KEY_FP}\n"
+        ),
+    )?;
+    // End-to-end proof that the published database verifies against the pinned key —
+    // best-effort, and the ONLY step here that needs the network. The ISO stages these
+    // packages offline on purpose (see install_branding's repo path), so a disconnected
+    // install must not die on a disk that is already partitioned and pacstrap'd.
+    match cmd::arch_chroot(&cfg.mnt, "pacman -Sy") {
+        Ok(()) => println!("    [appsynergy] keyring populated, signed database verified"),
+        Err(e) => eprintln!(
+            "WARN: could not verify the signed [appsynergy] database now: {e}\n\
+             Keyring is populated and [appsynergy] is configured Required DatabaseRequired;\n\
+             the first `pacman -Sy` on a connected system is the real proof."
+        ),
+    }
     // Do NOT pre-copy package-owned files (mirrorlist conf) — that caused
     // "exists in filesystem" on pacman -U (INSTALL-PROBLEMS #2).
     Ok(())
@@ -766,6 +834,7 @@ fn install_branding(cfg: &Config) -> Result<()> {
     // that appsynergy-branding 2-x used to own.
     let desktop = !cfg.variant.is_server();
     let mut names: Vec<&str> = vec![
+        "appsynergy-keyring",
         "appsynergy-mirrorlist",
         "appsynergy-ca-certificates",
         "appsynergy-branding",
