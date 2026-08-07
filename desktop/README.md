@@ -8,7 +8,7 @@
 | **server** | `appsynergy-install --variant server` | OVH / tunnel host (no DE) |
 
 - Live environment: console, NetworkManager/iwd, install tools
-- Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `linux-appsynergy`
+- Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `appsynergy-linux`
 - Server target: headless, nftables + WireGuard + networkd, **k3s**, CPU-auto server kernel
 - Shell: **bash** default (fish optional interactive)
 
@@ -53,7 +53,7 @@ sudo ./scripts/write-usb.sh /dev/sdX
 3. `sudo appsynergy-install` (**Rust** installer; source in `installer/`)  
    - **`--variant desktop|server`** (default desktop; env `APPSYNERGY_VARIANT`)  
    - Desktop disk default: **`/dev/nvme0n1`**; server default: **`/dev/sda`**  
-   - Kernel local pkgs: desktop → `linux-appsynergy*`; server → `linux-appsynergy-server-skylake` + `-tigerlake` (+ headers)  
+   - Kernel local pkgs: `appsynergy-linux` + `appsynergy-linux-headers`, both variants  
    - Or: `--kernel repo` for stock Arch `linux`  
    - Non-interactive: `--yes --password-file /path/to/key`  
    - **TPM enroll** when TPM present (`--tpm` / `--no-tpm` / `--tpm-pcrs`)  

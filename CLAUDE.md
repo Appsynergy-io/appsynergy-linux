@@ -9,9 +9,7 @@ scripts/check.sh                                       # release gate — run be
 sudo desktop/scripts/build-iso.sh                      # installer ISO -> desktop/out/
 sudo desktop/scripts/run-iso-build.sh                  # clean-build entrypoint (wipes dead work dirs)
 desktop/scripts/stage-rescue-payload.sh                # OVH rescue tarball -> desktop/out/
-packages/scripts/build-linux-appsynergy.sh             # desktop kernel
-packages/scripts/build-linux-appsynergy-server.sh      # both server kernels
-packages/scripts/build-linux-appsynergy-server-flavor.sh skylake|tigerlake
+packages/scripts/build-appsynergy-linux.sh             # the kernel (one, for every metal)
 packages/scripts/build-repo.sh && packages/scripts/publish-repo.sh   # stage + publish pacman repo
 packages/scripts/verify-repo.sh                        # assert published == staged; exit 1 on drift
 ```
@@ -21,11 +19,11 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 | Path | Role |
 |------|------|
 | `desktop/iso/` | archiso profile (airootfs, `pacman.conf`) |
-| `desktop/installer/` | `appsynergy-install` (Rust); `src/detect.rs` picks the kernel package from the live CPU |
+| `desktop/installer/` | `appsynergy-install` (Rust); `src/detect.rs` refuses CPUs the one v3 kernel cannot boot |
 | `desktop/scripts/` | ISO build, rescue payload staging, USB write |
-| `kernel/configs/` | CachyOS config fragments — one per target metal |
+| `kernel/upstream/PIN` | the whole kernel contract — AppSynergy ships no Kconfig of its own |
 | `kernel/bench/` | committed benchmark runs |
-| `packages/pkgbuilds/` | PKGBUILDs — kernels, `appsynergy-mirrorlist`, and the identity split below |
+| `packages/pkgbuilds/` | PKGBUILDs — `appsynergy-mirrorlist` and the identity split below; **no kernel** |
 | `desktop/brand-review/` | wallpaper/icon **candidates** for review only; never read at runtime |
 | `packages/repo/x86_64/` | local pacman staging, gitignored — `repo-add` output, input to publish |
 
@@ -41,7 +39,7 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 - **Scripts derive `MONO`** (`$(dirname "$0")/../..`) to reach a sibling subtree. Do not reintroduce absolute paths; the checkout has moved once already.
 - **`desktop/iso/airootfs/opt/appsynergy/k3s/k3s.service.env` is gitignored** — mode 0600, holds runtime secrets.
 - **`desktop/work-*/` are root-owned** multi-GB archiso scratch dirs; removing them needs root. `out/` is 16G of built ISOs. Both gitignored.
-- Kernel invariants (`CONFIG_BRIDGE_NETFILTER` and k3s) live in `kernel/CLAUDE.md` — read it before touching any fragment.
+- **The kernel is upstream's, unmodified.** `appsynergy-linux` is CachyOS `linux-cachyos-server` + ThinLTO, renamed and nothing else; there are no config fragments and `check.sh` fails if one reappears. Two consequences bite elsewhere: it is `GENERIC_V3`, so the installer must refuse pre-Haswell CPUs, and its `CONFIG_LSM` omits AppArmor, so the cmdline must add it. Read `kernel/CLAUDE.md` before touching any of it.
 
 ## Conventions
 

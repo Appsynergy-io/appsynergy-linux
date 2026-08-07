@@ -54,32 +54,26 @@ grep -qxF "$want_server" "$PROFILE/pacman.conf" || {
 }
 DST_PKG="$PROFILE/airootfs/opt/appsynergy/pkgs"
 mkdir -p "$DST_PKG"
-# Prefer linux-appsynergy; keep legacy igpu name as fallback
-if compgen -G "$SRC_PKG/linux-appsynergy-[0-9]*.pkg.tar.zst" > /dev/null; then
-  cp -a "$SRC_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  cp -a "$SRC_PKG"/linux-appsynergy-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  rm -f "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
-elif compgen -G "$PKG_REPO/linux-appsynergy-[0-9]*.pkg.tar.zst" > /dev/null; then
-  cp -a "$PKG_REPO"/linux-appsynergy-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  cp -a "$PKG_REPO"/linux-appsynergy-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  rm -f "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
-elif compgen -G "$SRC_PKG/linux-cachyos-igpu-[0-9]*.pkg.tar.zst" > /dev/null; then
-  cp -a "$SRC_PKG"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  cp -a "$SRC_PKG"/linux-cachyos-igpu-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-else
-  echo "WARN: no local kernel packages (linux-appsynergy or linux-cachyos-igpu); use --kernel repo"
-fi
-# Host-max server kernels (skylake + tigerlake)
-for src in "$PKG_REPO" "$SRC_PKG"; do
-  for pat in linux-appsynergy-server-skylake linux-appsynergy-server-tigerlake; do
-    if compgen -G "$src/${pat}-[0-9]*.pkg.tar.zst" > /dev/null; then
-      cp -a "$src"/${pat}-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-    fi
-    if compgen -G "$src/${pat}-headers-*.pkg.tar.zst" > /dev/null; then
-      cp -a "$src"/${pat}-headers-*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-    fi
-  done
+# One kernel, both variants: appsynergy-linux. Version-anchored `-[0-9]*` so the
+# package glob never swallows `-headers-`, same rule as the branding globs.
+staged_kernel=0
+for src in "$SRC_PKG" "$PKG_REPO"; do
+  if compgen -G "$src/appsynergy-linux-[0-9]*.pkg.tar.zst" > /dev/null; then
+    cp -a "$src"/appsynergy-linux-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+    cp -a "$src"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+    staged_kernel=1
+    break
+  fi
 done
+if [[ $staged_kernel == 1 ]]; then
+  # Retired per-CPU and desktop kernels must not ride along: the installer would
+  # find them as a fallback and quietly install a kernel nobody builds any more.
+  rm -f "$DST_PKG"/linux-appsynergy-*.pkg.tar.zst "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
+else
+  echo "WARN: no appsynergy-linux package in $SRC_PKG or $PKG_REPO; use --kernel repo"
+fi
+# No separate server kernel: appsynergy-linux is both variants. The per-metal
+# skylake/tigerlake packages are retired — see kernel/CLAUDE.md.
 # AppSynergy identity packages (required offline after pacstrap).
 # Globs are version-anchored with [0-9]: a bare appsynergy-branding-* also
 # matches appsynergy-branding-desktop-*, which would corrupt both the copy below
@@ -132,9 +126,12 @@ fi
 echo "Local browser pkgs in image:"
 ls -lh "$DST_PKG"/brave-bin-* "$DST_PKG"/thorium-browser-bin-* 2>/dev/null || echo "  (brave/thorium none yet)"
 # Fail if kernel or branding missing when local kernel is expected
-if ! compgen -G "$DST_PKG"/linux-appsynergy-[0-9]*.pkg.tar.zst > /dev/null \
-   && ! compgen -G "$DST_PKG"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst > /dev/null; then
-  echo "ERROR: no kernel .pkg.tar.zst in $DST_PKG — aborting"
+if ! compgen -G "$DST_PKG"/appsynergy-linux-[0-9]*.pkg.tar.zst > /dev/null; then
+  echo "ERROR: no appsynergy-linux .pkg.tar.zst in $DST_PKG — aborting"
+  exit 1
+fi
+if ! compgen -G "$DST_PKG"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst > /dev/null; then
+  echo "ERROR: appsynergy-linux-headers missing from $DST_PKG — aborting"
   exit 1
 fi
 if ! compgen -G "$DST_PKG"/appsynergy-branding-[0-9]*.pkg.tar.zst > /dev/null; then

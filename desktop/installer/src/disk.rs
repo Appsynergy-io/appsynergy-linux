@@ -200,12 +200,25 @@ pub fn render_cmdline_luks(
         opts.push_str(&format!("rd.luks.name={uuid}={name} "));
     }
     opts.push_str(&format!("root={root_spec} rootflags=subvol=@ rw zswap.enabled=0"));
+    opts.push(' ');
+    opts.push_str(APPARMOR_LSM_CMDLINE);
     if !extra.is_empty() {
         opts.push(' ');
         opts.push_str(extra.trim());
     }
     opts
 }
+
+/// AppArmor is compiled into the kernel we ship but is **not** in its default
+/// `CONFIG_LSM` list — upstream sets `landlock,lockdown,yama,integrity,bpf`.
+/// Without this on the cmdline the profiles load, `systemctl enable apparmor`
+/// succeeds, `aa-status` reports a working LSM, and nothing is enforced.
+///
+/// The retired `kernel/configs/server-*.fragment` made AppArmor the major MAC in
+/// Kconfig. Taking upstream's config unmodified moved that decision to the
+/// bootloader, which is the right place for it — it costs no kernel fork — but
+/// it has to actually be written, hence this constant and its test.
+pub const APPARMOR_LSM_CMDLINE: &str = "lsm=landlock,lockdown,yama,integrity,apparmor,bpf";
 
 /// INSTALL-PROBLEMS #1: os-release must only be written to usr/lib; etc is symlink.
 /// Returns (lib_path_rel, etc_symlink_target) for documentation/tests.
@@ -265,6 +278,8 @@ pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
             | "appsynergy-wallpapers"
             | "appsynergy-mirrorlist"
             | "appsynergy-ca-certificates"
+            | "appsynergy-linux"
+            | "appsynergy-linux-headers"
             | "linux-appsynergy"
             | "linux-appsynergy-headers"
             | "linux-appsynergy-server"
@@ -428,6 +443,10 @@ mod tests {
 
     #[test]
     fn boot_image_filter_ignores_random_seed() {
+        // The rename moves /boot filenames; the prefix test must still cover them.
+        assert!(is_boot_image_name("vmlinuz-appsynergy-linux"));
+        assert!(is_boot_image_name("initramfs-appsynergy-linux.img"));
+        assert!(is_boot_image_name("initramfs-appsynergy-linux-fallback.img"));
         assert!(is_boot_image_name("vmlinuz-linux-appsynergy-server-skylake"));
         assert!(is_boot_image_name("initramfs-linux-appsynergy-server-skylake.img"));
         assert!(!is_boot_image_name("random-seed"));

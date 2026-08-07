@@ -24,7 +24,7 @@ Server defaults (see kernel docs SERVER-OS.md keep list):
   Layout:   same LUKS2 + btrfs subvols as desktop
   Network:  systemd-networkd + nftables (no Plasma/NM)
   Unlock:   TPM auto → SSH initrd (baked pubkey) → console
-  Kernel:   linux-appsynergy-server (local pkgs) when present
+  Kernel:   appsynergy-linux (local pkgs) when present
   NOT:      agent, pets, console SPA, RAUC (appsynergy-linux apps)
 
 Before install:

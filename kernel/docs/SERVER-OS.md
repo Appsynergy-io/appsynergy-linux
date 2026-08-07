@@ -4,14 +4,14 @@
 appsynergy-install --variant server   # APPSYNERGY_VARIANT=server
 ```
 
-Headless OVH / tunnel host. Same **LUKS2 + btrfs** layout as desktop; same CachyOS
-**kernel series**; package **`linux-appsynergy-server`**. Replaces appsynergy-linux
-for this role — **keep list only**, no appliance applications.
+Headless OVH / tunnel host. Same **LUKS2 + btrfs** layout as desktop and the same
+kernel package, `appsynergy-linux` — the server/desktop difference is packages and
+services, never the kernel. **Keep list only**, no appliance applications.
 
 | Doc | Role |
 |-----|------|
 | **This** | OS + keep list |
-| [SERVER-KERNEL.md](SERVER-KERNEL.md) | kernel fragment / package |
+| [../README.md](../README.md) | the kernel and how it is built |
 | [SERVER-SECURITY.md](SERVER-SECURITY.md) | TPM / SSH unlock |
 | `configs/server.fragment` | Kconfig |
 | `desktop/` | installer, `packages-target-server.txt` |
@@ -37,7 +37,7 @@ WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/
 
 ### Userspace
 
-systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **k3s** (staged binary + config; embeds its runtime) · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · linux-appsynergy-server-skylake/-tigerlake · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, **k3s**, fstrim
+systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **k3s** (staged binary + config; embeds its runtime) · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · appsynergy-linux · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, **k3s**, fstrim
 
 ### NOT keep
 
@@ -72,7 +72,7 @@ Live seeds: `packages-target-server.txt`, `machine-server.env`, `sysctl-server.c
 ## AppArmor
 
 - **Kernel:** `CONFIG_SECURITY_APPARMOR=y`, LSM order includes `apparmor` (needs
-  `linux-appsynergy-server` rebuild — desktop fallback kernel may lack it).
+  upstream config; `appsynergy-linux` carries it and the build asserts the module ships).
 - **Userspace:** `apparmor` package; unit enabled at install.
 - **Profiles:** distro stock only (no custom orchestrator profiles).
 - **Check:** `aa-status` · `dmesg | grep -i apparmor` · `/sys/kernel/security/lsm`

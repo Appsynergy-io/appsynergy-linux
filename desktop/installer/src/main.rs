@@ -740,9 +740,9 @@ fn install_local_kernel(cfg: &Config) -> Result<()> {
 
 /// Install **one** kernel package pair for the operator-chosen variant.
 ///
-/// - **desktop** → `linux-appsynergy` (+ headers)
-/// - **server**  → CPU-mapped host-max only (`…-server-skylake` **or** `…-server-tigerlake`),
-///   including Kaby/Coffee/Comet → skylake package. Does **not** install both.
+/// One kernel for both variants: `appsynergy-linux` (+ headers).
+/// Refuses outright when the CPU cannot run it (pre-x86-64-v3), rather than
+/// installing a kernel that only fails at boot.
 fn find_kernel_pkg_pairs(
     dir: &Path,
     variant: Variant,
@@ -771,60 +771,45 @@ fn find_kernel_pkg_pairs(
         }
     };
 
-    if variant.is_server() {
-        // Preferred: exact CPU-mapped prefix, then legacy alias for that flavor only.
-        let mut candidates: Vec<&str> = sel.pkg_prefixes.clone();
-        if let Some(flavor) = sel.server_flavor {
-            for leg in flavor.legacy_pkg_prefixes() {
-                if !candidates.contains(leg) {
-                    candidates.push(leg);
-                }
-            }
-        }
-        for prefix in &candidates {
-            if let Some(p) = try_pair(prefix) {
-                if *prefix != sel.pkg_prefixes.first().copied().unwrap_or("") {
-                    eprintln!("WARN: using legacy kernel package prefix {prefix}");
-                }
-                return Ok(vec![p]);
-            }
-        }
-        // Unmapped CPU or missing ISO payload: clear failure (no silent wrong-ISA install).
+    // An empty selection means the CPU cannot run what we ship. Bail before any
+    // package is chosen: a v3 kernel on a pre-Haswell CPU installs cleanly and
+    // then fails at boot, which is the worst place to discover it.
+    if sel.pkg_prefixes.is_empty() {
         bail!(
-            "no server kernel package for this CPU in {}.\n\
+            "this CPU cannot run the kernel AppSynergy ships.\n\
              cpu: {} ({})\n\
              {}\n\
-             Ship linux-appsynergy-server-skylake (Skylake/Kaby/Coffee/Comet/Xeon E3 v5–v6)\n\
-             or linux-appsynergy-server-tigerlake (Tiger Lake / 11th gen), with headers.\n\
-             Or re-run with --kernel repo for stock Arch linux.",
-            dir.display(),
-            if sel.cpu_model.is_empty() {
-                "unknown"
-            } else {
-                sel.cpu_model.as_str()
-            },
+             Re-run with --kernel repo to install stock Arch linux instead.",
+            if sel.cpu_model.is_empty() { "unknown" } else { sel.cpu_model.as_str() },
             sel.family_label,
             sel.reason
         );
     }
 
-    // Desktop: single workstation package.
     for prefix in &sel.pkg_prefixes {
         if let Some(p) = try_pair(prefix) {
             return Ok(vec![p]);
         }
     }
-    try_pair("linux-cachyos-igpu")
-        .map(|p| {
-            eprintln!("WARN: linux-appsynergy missing; using linux-cachyos-igpu");
-            vec![p]
-        })
-        .with_context(|| {
-            format!(
-                "kernel mode local but missing pkgs in {} (variant=desktop; need linux-appsynergy + headers)",
-                dir.display()
-            )
-        })
+
+    // Legacy names are accepted only as a fallback on media built before the
+    // rename, and never chosen over the current package.
+    for legacy in detect::LEGACY_KERNEL_PKGS {
+        if let Some(p) = try_pair(legacy) {
+            eprintln!("WARN: {} missing; using retired package {legacy}", detect::KERNEL_PKG);
+            return Ok(vec![p]);
+        }
+    }
+
+    bail!(
+        "kernel mode local but no {} package in {} (variant={}); need {} + {}-headers.\n\
+         Or re-run with --kernel repo for stock Arch linux.",
+        detect::KERNEL_PKG,
+        dir.display(),
+        if variant.is_server() { "server" } else { "desktop" },
+        detect::KERNEL_PKG,
+        detect::KERNEL_PKG
+    )
 }
 
 fn match_kernel_pkg_prefix(prefix: &str, name: &str) -> bool {
@@ -1707,13 +1692,10 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
     }
 
     if cfg.variant.is_server() {
-        let flavor = sel
-            .server_flavor
-            .map(|f| f.as_str())
-            .unwrap_or("unmapped");
         println!(
-            "    server boot default: {default_entry} (cpu family={}, flavor={flavor})",
-            sel.family_label
+            "    server boot default: {default_entry} (cpu family={}, kernel={})",
+            sel.family_label,
+            detect::KERNEL_PKG
         );
     }
 
@@ -1983,7 +1965,7 @@ fn verify_initrd_unlock(cfg: &Config) -> Result<()> {
     let script = r#"set -u
 rc=0
 found=0
-for img in /boot/initramfs-linux-appsynergy-server-*.img; do
+for img in /boot/initramfs-appsynergy-linux*.img; do
   [ -f "$img" ] || continue
   found=1
   miss=""

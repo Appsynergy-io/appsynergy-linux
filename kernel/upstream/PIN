@@ -1,12 +1,61 @@
-# Kernel source pin — the exact inputs that produced the published kernels.
-# Machine-read by packages/scripts/build-linux-appsynergy*.sh (assert_kernel_pin).
+# Kernel pin — the exact upstream inputs that produce `appsynergy-linux`.
+# Machine-read by packages/scripts/build-appsynergy-linux.sh and asserted by
+# scripts/check.sh (stage kernel-pin).
+#
+# AppSynergy contributes no kernel configuration. The kernel is CachyOS's
+# `linux-cachyos-server` built with ThinLTO — upstream's own published
+# `linux-cachyos-server-lto` recipe — against that flavor's committed config,
+# unmodified. The only AppSynergy input is the name.
+
 UPSTREAM_REPO=https://github.com/CachyOS/linux-cachyos.git
-UPSTREAM_COMMIT=74d5bae
-PKGVER=7.1.5
-# Local modifications on top of that commit, captured verbatim:
-#   local-delta-74d5bae.patch          PKGBUILD + config delta (git diff at capture)
-#   dkms-clang.patch                   untracked patch the build applies
-#   config-7.1.5-3-appsynergy-server-skylake     final .config, OVH kernel as shipped
-#   config-7.1.5-2-appsynergy-server-tigerlake   final .config, NUC kernel as shipped
-# To reproduce: clone UPSTREAM_REPO at UPSTREAM_COMMIT, apply local-delta patch,
-# then packages/scripts/build-linux-appsynergy-server-flavor.sh <flavor>.
+UPSTREAM_COMMIT=12d9925
+UPSTREAM_FLAVOR=linux-cachyos-server
+PKGVER=7.1.6
+PKGREL=1
+
+# What the build must produce. build-appsynergy-linux.sh refuses to stage
+# anything that does not match, and check.sh asserts these strings appear here.
+PKGBASE=appsynergy-linux
+KERNEL_UNAME=7.1.6-1-appsynergy-linux
+
+# Build options, set explicitly by the build script — never inherited. These are
+# upstream's own values for the published x86_64_v3 ThinLTO server packages,
+# taken from their repo build script (script-v3-v4.sh at the pinned commit):
+# GENERIC_V3 + auto-optimization off, then a ThinLTO pass.
+#
+# _processor_opt is the dangerous one. Upstream's default is empty, which means
+# native autodetection — on this workstation that produces an Alder Lake kernel
+# that does not boot the Skylake Xeon. The build asserts CONFIG_X86_NATIVE_CPU
+# is absent and CONFIG_X86_64_VERSION=3 is present before staging.
+OPT__processor_opt=GENERIC_V3
+OPT__use_auto_optimization=no
+OPT__use_llvm_lto=thin
+OPT__use_lto_suffix=no
+OPT__use_gcc_suffix=no
+
+# Source verification. The release tarball is signed by these two keys
+# (`validpgpkeys` at the pinned commit) and its b2sum is committed upstream;
+# the build enforces both — no --skippgpcheck, no --skipchecksums.
+# cachyos-source-keys.asc holds exactly these.
+SRCKEY=E18447AC260021D31F3FF6C4C8A2A4774B8B63C4
+SRCKEY=E8B9AA39F054E30E8290D492C3C4820857F654FE
+
+# Sources upstream adds conditionally but does not checksum. The ThinLTO branch
+# appends misc/dkms-clang.patch from a raw `master` URL — an unpinned, mutable
+# input — and never extends b2sums, so makepkg aborts on the length mismatch.
+# Upstream's own CI regenerates the sums, which verifies nothing. We pin the
+# hash instead, appended positionally as b2sums+= by the build script.
+# SRCSUM <basename> <b2sum>
+SRCSUM dkms-clang.patch c992567bd7dd8553432be496ffa1c17e2f5ebe9c7edb51945cf977e1b742dd6517c210d8843bb82744ca705efd07f8027cd7dde41b50215ebd707a34aa81462e
+
+# Runtime invariants. Previously asserted as Kconfig symbols in
+# kernel/configs/server-*.fragment; with an unmodified upstream config the only
+# honest place to assert them is the built package. physdev is what k3s's
+# kube-router needs and it does NOT follow from br_netfilter — separate symbol,
+# separate module. Losing it silently fail-opens every NetworkPolicy.
+REQUIRE_MODULE kernel/net/netfilter/xt_physdev.ko.zst
+REQUIRE_MODULE kernel/net/bridge/br_netfilter.ko.zst
+REQUIRE_MODULE kernel/net/bridge/netfilter/nf_conntrack_bridge.ko.zst
+# NICs: I210 (OVH appliance) and I225-LM (lab NUC). One image covers both metals.
+REQUIRE_MODULE /igb/igb.ko.zst
+REQUIRE_MODULE /igc/igc.ko.zst

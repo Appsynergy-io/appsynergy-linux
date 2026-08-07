@@ -3,7 +3,7 @@
 No ISO. The payload ships an Arch bootstrap (pacstrap + arch-chroot, keyring and
 mirrors already baked in), so a Debian rescue needs no Arch tooling of its own.
 
-**Target:** dual NVMe → LUKS per disk → btrfs RAID1, skylake kernel, initrd SSH unlock.
+**Target:** dual NVMe → LUKS per disk → btrfs RAID1, `appsynergy-linux` kernel, initrd SSH unlock.
 **Metal:** server1 E3-1270 v6.
 
 ## 0. Build the payload (on your workstation)
@@ -11,10 +11,10 @@ mirrors already baked in), so a Debian rescue needs no Arch tooling of its own.
 ```bash
 cd ~/projects/appsynergy-linux/desktop
 sudo ./scripts/build-bootstrap.sh          # Arch bootstrap tarball → out/
-./scripts/stage-rescue-payload.sh          # FLAVOUR=tigerlake|all to change kernels
+./scripts/stage-rescue-payload.sh          # one kernel; no flavour to choose
 ```
 
-Produces `out/appsynergy-server-rescue-YYYYMMDD.tar.zst` (~272 MB, skylake only).
+Produces `out/appsynergy-server-rescue-YYYYMMDD.tar.zst`.
 Both scripts fail loudly rather than emit an unusable payload. The payload
 includes the k3s binary (sha256-pinned by `stage-k3s.sh`); `k3s.service.env`
 ships as an empty placeholder — secrets never travel in the tarball.
@@ -57,7 +57,7 @@ decision is needed. Two things it catches that would otherwise strand you:
 bash rescue-install.sh --disks /dev/nvme0n1,/dev/nvme1n1
 ```
 
-Optional: `--flavour tigerlake`, `--yes`, `--password-file /path/to/key`.
+Optional: `--yes`, `--password-file /path/to/key`. (`--flavour` is retired and ignored.)
 Anything unrecognised is passed through to `appsynergy-install`.
 
 The script verifies payload checksums, unpacks the bootstrap, checks the tooling
@@ -85,7 +85,7 @@ First boot unlocks in this order: TPM (if present) → **initrd SSH** → consol
 ssh -i <your-key> root@SERVER_IP     # initrd dropbear: you get the unlock agent
 # enter the LUKS passphrase, session closes, host continues booting
 ssh -i <your-key> root@SERVER_IP     # normal login
-uname -r                              # expect *-appsynergy-server-skylake
+uname -r                              # expect *-appsynergy-linux
 ```
 
 ## 5. Verify

@@ -1,7 +1,7 @@
 # Packages pacstrap'd for AppSynergy **server** variant (OVH / tunnels).
 # Keep list + OS docs: /home/imma/projects/appsynergy-linux/kernel/docs/SERVER-OS.md
 # No desktop environment, no browsers, no Wi-Fi stack, no GPU media.
-# Kernels: linux-appsynergy-server-skylake + -tigerlake via --kernel=local (default).
+# Kernel: appsynergy-linux via --kernel=local (default). One package, every metal.
 # NOT keep: agent/pets/console/RAUC (appsynergy-linux apps).
 
 # --- base / boot / disk ---
@@ -33,7 +33,9 @@ bind
 bpf
 # systemd-networkd is in systemd; enable at install time
 
-# --- MAC (needs linux-appsynergy-server-skylake/-nuc with CONFIG_SECURITY_APPARMOR) ---
+# --- MAC. The kernel has CONFIG_SECURITY_APPARMOR=y but leaves apparmor OUT of
+# CONFIG_LSM, so this package alone enforces nothing; the installer adds apparmor
+# to the cmdline lsm= list (see disk::APPARMOR_LSM_CMDLINE). ---
 apparmor
 
 # --- LUKS remote unlock (TPM first; dropbear SSH if TPM fails) ---
@@ -84,7 +86,7 @@ perf
 ripgrep
 htop
 
-# Dependency of linux-appsynergy-server-*-headers, listed here on purpose.
+# Dependency of appsynergy-linux-headers, listed here on purpose.
 # The kernel packages are installed with `pacman -U` from local files, and
 # pahole is the one thing that transaction has to fetch from a repo. pacman 7
 # sandboxes downloads with Landlock + the `alpm` user, and OVH's rescue kernel

@@ -218,7 +218,7 @@ metadata, so a package on a host still cannot name the commit that built it.
 
 | Path | Site |
 |------|------|
-| `/home/imma/src/linux-cachyos/...` | `build-repo.sh`, both kernel build scripts, `install-linux-appsynergy*.sh`, `build-iso.sh` |
+| `~/src/linux-cachyos` | `build-appsynergy-linux.sh` (`SRC_CLONE`, overridable) and `build-iso.sh` (`SRC_PKG`). Narrowed 2026-08-07: the kernel build reads only committed objects from this clone and compiles in a scratch dir, so the path is a cache, not a build tree. |
 | `/home/imma/projects/appsynergy-rs/ops/k3s/config.yaml` | `stage-k3s.sh` — a silent cross-repo dependency |
 | `/home/imma/projects/combly`, `/beetv-rs` | `run-post-bios-bench.sh` |
 | `file:///home/imma/projects/appsynergy-linux/...` | `desktop/iso/pacman.conf` (known; asserted by `build-iso.sh`) |
