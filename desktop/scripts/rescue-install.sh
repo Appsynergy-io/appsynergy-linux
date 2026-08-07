@@ -6,7 +6,7 @@
 # Nothing here improvises: every input is verified before the first destructive
 # step, and the installer itself refuses a server install without an unlock key.
 #
-#   bash rescue-install.sh --disks /dev/nvme0n1,/dev/nvme1n1 [--flavour skylake]
+#   bash rescue-install.sh --disks /dev/nvme0n1,/dev/nvme1n1
 #
 # Run rescue-preflight.sh FIRST and read its output.
 set -uo pipefail
@@ -14,7 +14,6 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PAYLOAD="${PAYLOAD:-$HERE}"          # dir holding pkgs/ etc/ bootstrap/ SHA256SUMS
 CHROOT="${CHROOT:-/root/appsynergy-bootstrap}"
-FLAVOUR=skylake
 DISKS=""
 PASSTHRU=()
 
@@ -26,7 +25,7 @@ while (( $# )); do
     --disks)   DISKS="$2"; shift 2 ;;
     --disk)    [[ "$2" == *,* ]] && die "--disk takes ONE device; use --disks for a comma-separated list"
                DISKS="$2"; shift 2 ;;
-    --flavour) FLAVOUR="$2"; shift 2 ;;
+    --flavour) echo "note: --flavour is retired; one kernel serves every metal" >&2; shift 2 ;;
     --payload) PAYLOAD="$2"; shift 2 ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *)         PASSTHRU+=("$1"); shift ;;
@@ -35,7 +34,6 @@ done
 
 [[ $EUID -eq 0 ]] || die "run as root"
 [[ -n "$DISKS" ]] || die "--disks is required (comma-separated). Take the names from rescue-preflight.sh."
-[[ "$FLAVOUR" =~ ^(skylake|tigerlake)$ ]] || die "--flavour must be skylake or tigerlake"
 
 # ---------------------------------------------------------------- verify input
 say "verifying payload"
@@ -51,8 +49,8 @@ for d in ${DISKS//,/ }; do
 done
 say "  target disks: $DISKS"
 
-KPKG=$(ls -1 "$PAYLOAD"/pkgs/linux-appsynergy-server-${FLAVOUR}-[0-9]*.pkg.tar.zst 2>/dev/null | head -1)
-[[ -n "$KPKG" ]] || die "no $FLAVOUR kernel package in $PAYLOAD/pkgs/"
+KPKG=$(ls -1 "$PAYLOAD"/pkgs/appsynergy-linux-[0-9]*.pkg.tar.zst 2>/dev/null | head -1)
+[[ -n "$KPKG" ]] || die "no appsynergy-linux package in $PAYLOAD/pkgs/"
 say "  kernel: $(basename "$KPKG")"
 
 # The installer hard-requires /opt/appsynergy/k3s/k3s for server installs —
@@ -104,8 +102,8 @@ say "  tooling present"
 say "wiring payload into the chroot"
 mkdir -p "$R/etc/appsynergy" "$R/opt/appsynergy/pkgs"
 cp -a "$PAYLOAD/etc/." "$R/etc/appsynergy/"
-# Only the selected flavour's kernel; the other would just slow pacman -U.
-cp -a "$PAYLOAD"/pkgs/linux-appsynergy-server-${FLAVOUR}-*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
+cp -a "$PAYLOAD"/pkgs/appsynergy-linux-[0-9]*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
+cp -a "$PAYLOAD"/pkgs/appsynergy-linux-headers-[0-9]*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
 cp -a "$PAYLOAD"/pkgs/appsynergy-*.pkg.tar.zst "$R/opt/appsynergy/pkgs/" 2>/dev/null || true
 # k3s binary + unit for the installer's server overlay. The tarball ships an
 # empty k3s.service.env placeholder; either way the chroot copy must be 0600.
@@ -146,7 +144,7 @@ if (( rc == 0 )); then
   say "install finished"
   printf '\n  Next: set OVH boot mode back to hard disk, then reboot.\n'
   printf '  First boot: ssh into the initrd to unlock, then ssh in normally.\n'
-  printf '  Verify with: uname -r  -> expect *-appsynergy-server-%s\n' "$FLAVOUR"
+  printf '  Verify with: uname -r  -> expect *-appsynergy-linux\n'
 else
   printf '\n  install failed (rc=%s) — target disks may be partially written.\n' "$rc"
 fi

@@ -25,9 +25,7 @@ Packages **and** the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351
 
 | Package | Role |
 |---------|------|
-| `linux-appsynergy` / headers | Desktop workstation kernel (iGPU-tuned) |
-| `linux-appsynergy-server-skylake` / headers | OVH server kernel |
-| `linux-appsynergy-server-tigerlake` / headers | NUC server kernel |
+| `appsynergy-linux` / headers | The kernel — upstream CachyOS `linux-cachyos-server` + ThinLTO, renamed. One package, every machine. |
 | `appsynergy-keyring` | The GPG key every other package is verified against |
 | `appsynergy-ca-certificates` | AppSynergy Root CA trust anchor (+ Intermediate as chain filler) |
 | `appsynergy-mirrorlist` | Registers the `[appsynergy]` repo |
@@ -35,9 +33,8 @@ Packages **and** the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351
 | `appsynergy-branding-desktop` | icons, start entry, Plymouth — graphical installs only |
 | `appsynergy-wallpapers` | desktop + lock wallpapers — graphical installs only |
 
-Server kernel build: `./scripts/build-linux-appsynergy-server.sh` (both flavors) or
-`./scripts/build-linux-appsynergy-server-flavor.sh skylake|tigerlake`; fragments live in
-`kernel/configs/`.
+Kernel build: `./scripts/build-appsynergy-linux.sh`. There are no config fragments —
+the contract is `kernel/upstream/PIN`.
 
 Brave/Thorium stay as local USB payload or AUR for now (large / AUR).
 

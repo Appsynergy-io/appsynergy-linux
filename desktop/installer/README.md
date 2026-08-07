@@ -7,7 +7,7 @@ Destructive full-disk installer for the live USB. Built into the ISO by
 |------|-------------------|--------|
 | `--variant` | `desktop` (your choice) | `server` (your choice) |
 | Packages | `packages-target.txt` | `packages-target-server.txt` |
-| Kernel (local) | `linux-appsynergy` | **CPU auto:** `…-server-skylake` (Skylake/Kaby/Coffee/Comet/Xeon E3) **or** `…-server-tigerlake` (11th gen / 1185G7) — installs **one** |
+| Kernel (local) | `appsynergy-linux` | `appsynergy-linux` — same package. Built `GENERIC_V3`, so a CPU without AVX2/BMI2/FMA is **refused before any disk is touched** rather than given a kernel that fails at boot. |
 | FDE | LUKS2 full-disk | same |
 | TPM | auto-enroll when `/dev/tpm*` present (`--no-tpm` to skip) | same |
 | Network | NetworkManager + iwd | systemd-networkd + resolved |

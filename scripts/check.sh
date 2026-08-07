@@ -78,33 +78,60 @@ namcap_all() {
 }
 stage namcap namcap_all
 
-# 6. Kernel pin still matches the build tree (skip silently if tree absent)
+# 6. The kernel pin is self-consistent. It is now the whole contract: the build
+#    checks out UPSTREAM_COMMIT into a clean tree and refuses to stage anything
+#    whose uname, ISA or module list disagrees with what is written here, so a
+#    half-edited pin is a silent mis-build. Runs anywhere — no build tree needed.
 pin_check() {
-  local kdir="${KDIR:-/home/imma/src/linux-cachyos}"
-  [[ -d "$kdir/.git" ]] || return 0
-  local want have
-  want=$(sed -n 's/^UPSTREAM_COMMIT=//p' "$ROOT/kernel/upstream/PIN")
-  have=$(git -C "$kdir" rev-parse --short HEAD)
-  [[ "$want" == "$have" ]] || { echo "pin drift: PIN=$want tree=$have"; return 1; }
+  local P="$ROOT/kernel/upstream/PIN" v
+  [[ -f $P ]] || { echo "missing kernel/upstream/PIN"; return 1; }
+  for v in UPSTREAM_REPO UPSTREAM_COMMIT UPSTREAM_FLAVOR PKGVER PKGREL PKGBASE KERNEL_UNAME; do
+    grep -qE "^$v=." "$P" || { echo "PIN lacks $v"; return 1; }
+  done
+  local pkgver pkgrel pkgbase kuname
+  pkgver=$(sed -n 's/^PKGVER=//p' "$P");   pkgrel=$(sed -n 's/^PKGREL=//p' "$P")
+  pkgbase=$(sed -n 's/^PKGBASE=//p' "$P"); kuname=$(sed -n 's/^KERNEL_UNAME=//p' "$P")
+  [[ "$kuname" == "$pkgver-$pkgrel-$pkgbase" ]] ||
+    { echo "PIN: KERNEL_UNAME=$kuname but PKGVER/PKGREL/PKGBASE compose $pkgver-$pkgrel-$pkgbase"; return 1; }
+  # Empty _processor_opt is upstream's default and means native autodetection —
+  # a kernel welded to whichever CPU built it. It has already produced an Alder
+  # Lake kernel for a Skylake Xeon once.
+  grep -qE '^OPT__processor_opt=.+' "$P" ||
+    { echo "PIN: OPT__processor_opt must be set explicitly, never empty"; return 1; }
+  [[ -s "$ROOT/kernel/upstream/cachyos-source-keys.asc" ]] &&
+    grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$ROOT/kernel/upstream/cachyos-source-keys.asc" ||
+    { echo "PIN: cachyos-source-keys.asc missing or not a PGP key block"; return 1; }
+  grep -qE '^SRCKEY=[0-9A-F]{40}$' "$P" || { echo "PIN lacks a 40-hex SRCKEY"; return 1; }
+  grep -qE '^SRCSUM [^ ]+ [0-9a-f]{128}$' "$P" ||
+    { echo "PIN: SRCSUM lines must carry a 128-hex b2sum"; return 1; }
+  grep -q '^REQUIRE_MODULE ' "$P" || { echo "PIN lists no REQUIRE_MODULE"; return 1; }
 }
 stage kernel-pin pin_check
 
-# 7. Both server fragments keep the k3s bridge-netfilter pair. physdev is a
-#    separate symbol that `depends on BRIDGE_NETFILTER`, and losing it fails
-#    open: kube-router aborts every sync, so the apiserver accepts a
-#    NetworkPolicy and nothing is programmed. Fragments only — a shipped
-#    kernel/upstream/config-* legitimately lags until the next rebuild.
-fragment_netfilter() {
-  local f p
-  for f in server-skylake server-tigerlake; do
-    p="$ROOT/kernel/configs/$f.fragment"
-    grep -qE '^CONFIG_BRIDGE_NETFILTER=[my]$' "$p" ||
-      { echo "$f.fragment: missing CONFIG_BRIDGE_NETFILTER=m"; return 1; }
-    grep -qE '^CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m$' "$p" ||
-      { echo "$f.fragment: missing CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m"; return 1; }
-  done
+# 7. AppSynergy ships no kernel configuration. The kernel is upstream's, built
+#    from upstream's committed config; the moment a fragment reappears we are
+#    maintaining a fork again and the per-metal drift comes back with it. The
+#    k3s invariants that fragments used to assert are now asserted against the
+#    built artifact by the build script, and against its recorded config here.
+kernel_no_fork() {
+  local frags rc=0
+  frags=$(find "$ROOT/kernel/configs" -name '*.fragment' 2>/dev/null || true)
+  [[ -z "$frags" ]] || { echo "AppSynergy kernel config fragment(s) reappeared:"; echo "$frags"; rc=1; }
+  # physdev `depends on BRIDGE_NETFILTER` but does not follow from it — separate
+  # symbol. Losing it fails open: kube-router aborts every sync, so the apiserver
+  # accepts a NetworkPolicy and programs nothing.
+  local kuname cfg
+  kuname=$(sed -n 's/^KERNEL_UNAME=//p' "$ROOT/kernel/upstream/PIN")
+  cfg="$ROOT/kernel/upstream/config-$kuname"
+  if [[ -f $cfg ]]; then
+    local s
+    for s in CONFIG_BRIDGE_NETFILTER CONFIG_NETFILTER_XT_MATCH_PHYSDEV CONFIG_NF_CONNTRACK_BRIDGE; do
+      grep -qE "^$s=[my]$" "$cfg" || { echo "$(basename "$cfg"): $s not enabled"; rc=1; }
+    done
+  fi
+  return $rc
 }
-stage kernel-netfilter fragment_netfilter
+stage kernel-nofork kernel_no_fork
 
 # 8. Branding globs stay version-anchored. "appsynergy-branding-*" also matches
 #    "appsynergy-branding-desktop-*": unanchored, it ships Plasma assets to

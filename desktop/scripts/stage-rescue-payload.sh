@@ -9,21 +9,14 @@ OUT_DIR="$ROOT/out/appsynergy-server-rescue"
 TAR="$ROOT/out/appsynergy-server-rescue-${STAMP}.tar.zst"
 
 mkdir -p "$OUT_DIR"/{pkgs,etc,docs,bootstrap,k3s}
-# FLAVOUR=all keeps both server kernels; default ships only what the target needs.
-# The payload is copied to the box over the network, so every extra 150MB is
-# transfer time during an outage.
-FLAVOUR="${FLAVOUR:-skylake}"
-# kernels
+# One kernel for every metal, so there is no flavour to choose and nothing to
+# get wrong under outage pressure. `-[0-9]*` anchors the version so the package
+# glob does not also match -headers-.
 shopt -s nullglob
-if [[ $FLAVOUR == all ]]; then
-  KFLAVOURS=(skylake tigerlake)
-else
-  KFLAVOURS=("$FLAVOUR")
-fi
 srcs=()
-for kf in "${KFLAVOURS[@]}"; do
-  srcs+=( "$REPO"/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
-  srcs+=( "$ROOT"/iso/airootfs/opt/appsynergy/pkgs/linux-appsynergy-server-${kf}-*.pkg.tar.zst )
+for d in "$REPO" "$ROOT/iso/airootfs/opt/appsynergy/pkgs"; do
+  srcs+=( "$d"/appsynergy-linux-[0-9]*.pkg.tar.zst )
+  srcs+=( "$d"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst )
 done
 for f in "${srcs[@]}"; do
   [[ -f $f ]] || continue
@@ -127,7 +120,7 @@ fail=0
 [[ -s "$OUT_DIR/etc/ssh-unlock.pub" ]] || { echo "ERROR: etc/ssh-unlock.pub missing — headless host could not be unlocked" >&2; fail=1; }
 [[ -x "$OUT_DIR/appsynergy-install" ]] || { echo "ERROR: appsynergy-install missing" >&2; fail=1; }
 [[ -s "$OUT_DIR/etc/packages-target-server.txt" ]] || { echo "ERROR: packages-target-server.txt missing" >&2; fail=1; }
-compgen -G "$OUT_DIR/pkgs/linux-appsynergy-server-*.pkg.tar.zst" >/dev/null \
+compgen -G "$OUT_DIR/pkgs/appsynergy-linux-[0-9]*.pkg.tar.zst" >/dev/null \
   || { echo "ERROR: no server kernel package staged" >&2; fail=1; }
 [[ -x "$OUT_DIR/k3s/k3s" ]] || { echo "ERROR: k3s/k3s missing — server install dies after pacstrap without it" >&2; fail=1; }
 compgen -G "$OUT_DIR/pkgs/appsynergy-keyring-[0-9]*.pkg.tar.zst" >/dev/null \

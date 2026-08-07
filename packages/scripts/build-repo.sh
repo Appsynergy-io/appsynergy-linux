@@ -34,19 +34,20 @@ build_pkg "$ROOT/pkgbuilds/appsynergy-branding"
 build_pkg "$ROOT/pkgbuilds/appsynergy-wallpapers"
 build_pkg "$ROOT/pkgbuilds/appsynergy-branding-desktop"
 
-# Stage custom kernel if present on this machine
-# (KDIR: host-local kernel build tree; kernel/upstream/PIN records its contract)
-KDIR="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
-for f in \
-  "$KDIR"/linux-appsynergy-[0-9]*.pkg.tar.zst \
-  "$KDIR"/linux-appsynergy-headers-*.pkg.tar.zst \
-  "$KDIR"/linux-cachyos-igpu-[0-9]*.pkg.tar.zst \
-  "$KDIR"/linux-cachyos-igpu-headers-*.pkg.tar.zst
- do
+# The kernel stages itself. build-appsynergy-linux.sh copies straight into
+# $REPO after asserting the built artifact against kernel/upstream/PIN, so there
+# is nothing to scrape from a build tree here — and no build tree to scrape from,
+# since it builds in a scratch dir and removes it.
+if ! compgen -G "$REPO/appsynergy-linux-[0-9]*.pkg.tar.zst" > /dev/null; then
+  echo "    note: no appsynergy-linux in staging — run packages/scripts/build-appsynergy-linux.sh"
+fi
+
+# Retired kernels must not be re-indexed: a client with the old package still
+# installed would keep resolving updates for a kernel nobody builds.
+for f in "$REPO"/linux-appsynergy-*.pkg.tar.zst "$REPO"/linux-cachyos-igpu-*.pkg.tar.zst; do
   [[ -f "$f" ]] || continue
-  [[ "$f" == *dbg* ]] && continue
-  cp -a "$f" "$REPO/"
-  echo "    staged $(basename "$f")"
+  echo "    drop retired $(basename "$f")"
+  rm -f "$f" "$f.sig"
 done
 
 # Prune stale rels before signing: staging only ever accumulates (build_pkg and

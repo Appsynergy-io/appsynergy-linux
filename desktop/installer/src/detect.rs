@@ -1,70 +1,43 @@
-//! Hardware detection for **kernel package selection** only.
+//! Hardware detection for **kernel installability** and TPM messaging.
 //!
-//! Product variant (desktop | server) is always the operator's choice.
-//! This module maps live CPU → which local kernel package to install for that
-//! variant, and reports TPM presence for auto-enroll messaging.
+//! There is one kernel: `appsynergy-linux`, CachyOS's `linux-cachyos-server`
+//! built with ThinLTO under our name, from upstream's unmodified config. Product
+//! variant (desktop | server) selects packages and services, never the kernel.
 //!
-//! Server packages today:
-//! - `linux-appsynergy-server-skylake`  — -march=skylake (also Kaby/Coffee/Comet)
-//! - `linux-appsynergy-server-tigerlake` — -march=tigerlake (11th gen / 1185G7)
-//!
-//! Desktop package today:
-//! - `linux-appsynergy` — workstation (one package; CPU logged for clarity)
+//! This module no longer chooses between per-CPU builds — there are none. What
+//! it does instead is refuse hardware the single kernel cannot run: it is built
+//! `GENERIC_V3`, so a CPU without the x86-64-v3 feature set will not boot it.
+//! The old per-`-march=` packages made that unrepresentable; one package does
+//! not, so the check moved here.
 
 use std::fs;
 use std::path::Path;
 
-/// Host-max server kernel ISA family (matches package name suffix).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServerKernelFlavor {
-    /// Skylake-class ISA: Skylake, Kaby Lake, Coffee Lake, Comet Lake, Cascade, Xeon E3 v5/v6.
-    Skylake,
-    /// Tiger Lake-class: Tiger Lake, Ice Lake, 11th-gen mobile (e.g. i7-1185G7).
-    Tigerlake,
-}
+/// The only kernel package. Locked against `kernel/upstream/PIN` by
+/// `adversarial_tests::installer_kernel_package_matches_the_pin`.
+pub const KERNEL_PKG: &str = "appsynergy-linux";
 
-impl ServerKernelFlavor {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Skylake => "skylake",
-            Self::Tigerlake => "tigerlake",
-        }
-    }
+/// Retired kernel packages. Kept solely so an upgrade path can find and remove
+/// them — never installed, never selected.
+pub const LEGACY_KERNEL_PKGS: &[&str] = &[
+    "linux-appsynergy",
+    "linux-appsynergy-server",
+    "linux-appsynergy-server-skylake",
+    "linux-appsynergy-server-tigerlake",
+    "linux-appsynergy-server-ovh",
+    "linux-appsynergy-server-nuc",
+    "linux-cachyos-igpu",
+];
 
-    /// Package name prefix (no version): `linux-appsynergy-server-{flavor}`.
-    pub fn pkg_prefix(self) -> &'static str {
-        match self {
-            Self::Skylake => "linux-appsynergy-server-skylake",
-            Self::Tigerlake => "linux-appsynergy-server-tigerlake",
-        }
-    }
-
-    /// Legacy package prefixes that map to the same flavor.
-    pub fn legacy_pkg_prefixes(self) -> &'static [&'static str] {
-        match self {
-            Self::Skylake => &["linux-appsynergy-server-ovh"],
-            Self::Tigerlake => &["linux-appsynergy-server-nuc"],
-        }
-    }
-}
-
-impl std::fmt::Display for ServerKernelFlavor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// Result of CPU → kernel selection for a chosen product variant.
+/// Result of kernel selection for a chosen product variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelSelection {
-    /// Human CPU model line (lowercased for matching; display uses original-ish).
+    /// Human CPU model line.
     pub cpu_model: String,
-    /// Short family label for logs (e.g. "Coffee Lake", "Tiger Lake", "Alder Lake").
+    /// Short family label for logs (e.g. "Coffee Lake", "Tiger Lake").
     pub family_label: String,
-    /// Server host-max flavor when variant is server and we can map the CPU.
-    pub server_flavor: Option<ServerKernelFlavor>,
-    /// Package prefixes to install (kernel + matching headers resolved separately).
-    /// Server: exactly one host-max prefix when mapped. Desktop: `linux-appsynergy`.
+    /// Package prefixes to install (headers resolved separately).
+    /// Empty means this CPU cannot run the kernel we ship.
     pub pkg_prefixes: Vec<&'static str>,
     /// Why this mapping was chosen.
     pub reason: String,
@@ -86,135 +59,66 @@ pub fn read_cpu_model() -> String {
         .unwrap_or_default()
 }
 
-/// Classify a CPU model string into a server kernel flavor (pure; testable).
+/// Read the flag list from `/proc/cpuinfo` (first core).
+pub fn read_cpu_flags() -> String {
+    fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|t| {
+            t.lines()
+                .find(|l| l.starts_with("flags"))
+                .map(|l| {
+                    l.split_once(':')
+                        .map(|(_, v)| v.trim().to_string())
+                        .unwrap_or_default()
+                })
+        })
+        .unwrap_or_default()
+}
+
+/// The x86-64-v3 psABI level, tested against a `/proc/cpuinfo` flag list.
 ///
-/// Maps microarchitectures that run correctly on the shipped `-march=` packages:
-/// - **skylake pkg**: Skylake → Comet/Cascade (+ Kaby/Coffee) and Xeon E3 v5/v6
-/// - **tigerlake pkg**: Ice/Tiger Lake and 11th-gen mobile
+/// Checked as features rather than by model name: a name table would have to be
+/// kept current forever and would guess wrong on VMs, which report the host CPU
+/// model while masking features the guest does not actually have.
+pub fn supports_x86_64_v3(flags: &str) -> bool {
+    // The v3 additions over v2 that the kernel's GENERIC_V3 build actually emits.
+    const NEEDED: &[&str] = &["avx", "avx2", "bmi1", "bmi2", "fma", "f16c", "movbe", "xsave"];
+    let have: Vec<&str> = flags.split_whitespace().collect();
+    // `abm` is reported as `lzcnt`-implying `abm` on AMD and as `lzcnt` via
+    // `abm` on Intel; accept either spelling.
+    let abm = have.contains(&"abm") || have.contains(&"lzcnt");
+    NEEDED.iter().all(|n| have.contains(n)) && abm
+}
+
+/// Pick the kernel package for the operator-chosen variant + live CPU.
 ///
-/// Returns `None` when no host-max server package is a sensible match (e.g. Alder Lake).
-pub fn classify_server_flavor(cpu_model: &str) -> Option<(ServerKernelFlavor, &'static str)> {
-    let m = cpu_model.to_ascii_lowercase();
-
-    // --- Tiger Lake class (check before generic "lake" / gen numbers that overlap) ---
-    if m.contains("1185g7")
-        || m.contains("tiger lake")
-        || m.contains("tigerlake")
-        || m.contains("ice lake")
-        || m.contains("icelake")
-        || m.contains("11th gen")
-    {
-        return Some((ServerKernelFlavor::Tigerlake, "Tiger Lake / 11th-gen class"));
-    }
-
-    // --- Skylake class: explicit microarch names ---
-    if m.contains("skylake") {
-        return Some((ServerKernelFlavor::Skylake, "Skylake"));
-    }
-    if m.contains("kaby lake") || m.contains("kabylake") {
-        return Some((ServerKernelFlavor::Skylake, "Kaby Lake → skylake package"));
-    }
-    if m.contains("coffee lake") || m.contains("coffeelake") {
-        return Some((ServerKernelFlavor::Skylake, "Coffee Lake → skylake package"));
-    }
-    if m.contains("comet lake") || m.contains("cometlake") {
-        return Some((ServerKernelFlavor::Skylake, "Comet Lake → skylake package"));
-    }
-    if m.contains("cascade lake") || m.contains("cascadelake") {
-        return Some((ServerKernelFlavor::Skylake, "Cascade Lake → skylake package"));
-    }
-
-    // Xeon E3 v5/v6 / E3-12xx (OVH-class)
-    if m.contains("e3-1270")
-        || m.contains("e3-12")
-        || (m.contains("xeon") && (m.contains("v5") || m.contains("v6")))
-        || (m.contains("xeon") && m.contains("e3-"))
-    {
-        return Some((ServerKernelFlavor::Skylake, "Xeon E3 v5/v6 class → skylake package"));
-    }
-
-    // Intel core gen strings that map to skylake-era client (6–10th gen)
-    // e.g. "8th Gen Intel(R) Core(TM) i7-8700"
-    if m.contains("6th gen")
-        || m.contains("7th gen")
-        || m.contains("8th gen")
-        || m.contains("9th gen")
-        || m.contains("10th gen")
-    {
-        return Some((
-            ServerKernelFlavor::Skylake,
-            "6th–10th gen Core → skylake package",
-        ));
-    }
-
-    // Model number heuristics (i7-6700, i5-8400, i9-9900K, i7-10700, …)
-    if let Some(label) = client_model_skylake_era(&m) {
-        return Some((ServerKernelFlavor::Skylake, label));
-    }
-
-    None
-}
-
-/// Intel client model numbers: i7-6700 / i7-8700 / i9-9900K / i7-10700 → gen 6–10.
-/// 4-digit: first digit is gen. 5-digit 10xxx: 10th gen. 11xxx+ handled elsewhere.
-fn client_model_skylake_era(m: &str) -> Option<&'static str> {
-    // Prefer the i[3579]-NNNN token (avoid matching other hyphens in the line).
-    let lower = m;
-    let marker = ["i3-", "i5-", "i7-", "i9-"]
-        .into_iter()
-        .find_map(|p| lower.find(p).map(|i| i + p.len()))?;
-    let digits: String = lower[marker..]
-        .chars()
-        .take_while(|c| c.is_ascii_digit())
-        .collect();
-    if digits.len() == 4 {
-        let gen = digits.chars().next()?.to_digit(10)?;
-        if (6..=9).contains(&gen) {
-            return Some("Core model 6xxx–9xxx → skylake package");
-        }
-    } else if digits.len() >= 5 && digits.starts_with("10") {
-        return Some("Core model 10xxx → skylake package");
-    }
-    None
-}
-
-/// Desktop package prefix (single package line today).
-pub fn desktop_pkg_prefix() -> &'static str {
-    "linux-appsynergy"
-}
-
-/// Pick kernel package prefix(es) for the operator-chosen variant + live CPU.
-pub fn select_kernel_for_variant(variant_is_server: bool, cpu_model: &str) -> KernelSelection {
+/// `variant_is_server` is accepted and deliberately unused for the kernel: both
+/// variants run the same one. It stays in the signature because callers pass the
+/// variant and a future divergence should be a compile error, not a silent one.
+pub fn select_kernel_for_variant(
+    _variant_is_server: bool,
+    cpu_model: &str,
+    cpu_flags: &str,
+) -> KernelSelection {
     let family = family_label(cpu_model);
 
-    if !variant_is_server {
+    if !supports_x86_64_v3(cpu_flags) {
         return KernelSelection {
             cpu_model: cpu_model.to_string(),
             family_label: family,
-            server_flavor: None,
-            pkg_prefixes: vec![desktop_pkg_prefix()],
-            reason: "desktop variant → linux-appsynergy".into(),
+            pkg_prefixes: vec![],
+            reason: format!(
+                "CPU lacks the x86-64-v3 feature set that {KERNEL_PKG} is built for \
+                 (needs AVX2/BMI2/FMA/F16C/MOVBE); cpu={cpu_model:?}"
+            ),
         };
     }
 
-    match classify_server_flavor(cpu_model) {
-        Some((flavor, why)) => KernelSelection {
-            cpu_model: cpu_model.to_string(),
-            family_label: family,
-            server_flavor: Some(flavor),
-            pkg_prefixes: vec![flavor.pkg_prefix()],
-            reason: format!("server variant + CPU → {} ({why})", flavor.pkg_prefix()),
-        },
-        None => KernelSelection {
-            cpu_model: cpu_model.to_string(),
-            family_label: family,
-            server_flavor: None,
-            pkg_prefixes: vec![],
-            reason: format!(
-                "server variant but CPU not mapped to a host-max package \
-                 (have skylake + tigerlake only); cpu={cpu_model:?}"
-            ),
-        },
+    KernelSelection {
+        cpu_model: cpu_model.to_string(),
+        family_label: family,
+        pkg_prefixes: vec![KERNEL_PKG],
+        reason: format!("x86-64-v3 capable → {KERNEL_PKG}"),
     }
 }
 
@@ -252,7 +156,6 @@ pub fn family_label(cpu_model: &str) -> String {
     if cpu_model.trim().is_empty() {
         return "unknown".into();
     }
-    // keep a short slice of the model for display
     let t = cpu_model.trim();
     if t.len() > 48 {
         format!("{}…", &t[..45])
@@ -268,74 +171,64 @@ pub fn tpm_present() -> bool {
 
 /// Live selection using `/proc/cpuinfo`.
 pub fn select_kernel_live(variant_is_server: bool) -> KernelSelection {
-    select_kernel_for_variant(variant_is_server, &read_cpu_model())
+    select_kernel_for_variant(variant_is_server, &read_cpu_model(), &read_cpu_flags())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Flag list from the OVH appliance (Xeon E3-1270 v6), trimmed to what the
+    /// v3 gate reads.
+    const SKYLAKE_FLAGS: &str =
+        "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge sse sse2 ssse3 fma cx16 \
+         sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand lahf_lm abm bmi1 avx2 bmi2";
+
     #[test]
-    fn desktop_always_linux_appsynergy() {
-        let s = select_kernel_for_variant(false, "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz");
-        assert_eq!(s.pkg_prefixes, ["linux-appsynergy"]);
-        assert!(s.server_flavor.is_none());
+    fn both_variants_get_the_one_kernel() {
+        for server in [false, true] {
+            let s = select_kernel_for_variant(
+                server,
+                "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz",
+                SKYLAKE_FLAGS,
+            );
+            assert_eq!(s.pkg_prefixes, [KERNEL_PKG]);
+        }
     }
 
     #[test]
-    fn server_xeon_e3_1270_v6_skylake() {
-        let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz");
-        assert_eq!(s.server_flavor, Some(ServerKernelFlavor::Skylake));
-        assert_eq!(s.pkg_prefixes, ["linux-appsynergy-server-skylake"]);
-    }
-
-    #[test]
-    fn server_kaby_lake_maps_skylake_pkg() {
-        let s = select_kernel_for_variant(true, "Intel(R) Core(TM) i7-7700K CPU @ 4.20GHz");
-        assert_eq!(s.server_flavor, Some(ServerKernelFlavor::Skylake));
-        assert_eq!(s.pkg_prefixes, ["linux-appsynergy-server-skylake"]);
-    }
-
-    #[test]
-    fn server_coffee_lake_maps_skylake_pkg() {
-        let s = select_kernel_for_variant(true, "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz");
-        assert_eq!(s.server_flavor, Some(ServerKernelFlavor::Skylake));
-        assert!(s.reason.to_ascii_lowercase().contains("coffee") || s.pkg_prefixes[0].contains("skylake"));
-        // 8th gen / 8700
-        let s2 = select_kernel_for_variant(true, "8th Gen Intel(R) Core(TM) i5-8400");
-        assert_eq!(s2.server_flavor, Some(ServerKernelFlavor::Skylake));
-    }
-
-    #[test]
-    fn server_tigerlake_1185g7() {
-        let s = select_kernel_for_variant(
+    fn tigerlake_and_skylake_get_the_same_package() {
+        let a = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E3-1270 v6", SKYLAKE_FLAGS);
+        let b = select_kernel_for_variant(
             true,
             "11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz",
+            SKYLAKE_FLAGS,
         );
-        assert_eq!(s.server_flavor, Some(ServerKernelFlavor::Tigerlake));
-        assert_eq!(s.pkg_prefixes, ["linux-appsynergy-server-tigerlake"]);
+        assert_eq!(a.pkg_prefixes, b.pkg_prefixes);
     }
 
     #[test]
-    fn server_alder_lake_unmapped() {
-        // No host-max server package for Alder Lake yet
-        let s = select_kernel_for_variant(
-            true,
-            "12th Gen Intel(R) Core(TM) i9-12900K",
-        );
-        assert!(s.server_flavor.is_none());
+    fn pre_v3_cpu_is_refused_not_silently_given_an_unbootable_kernel() {
+        // Sandy Bridge: has avx, lacks avx2/bmi2/fma.
+        let sandy = "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge sse sse2 \
+                     ssse3 cx16 sse4_1 sse4_2 popcnt aes xsave avx lahf_lm";
+        let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E5-2670 0 @ 2.60GHz", sandy);
         assert!(s.pkg_prefixes.is_empty());
+        assert!(s.reason.contains("x86-64-v3"));
     }
 
     #[test]
-    fn flavor_pkg_prefix_stable() {
-        assert_eq!(
-            ServerKernelFlavor::Skylake.pkg_prefix(),
-            "linux-appsynergy-server-skylake"
-        );
-        assert_eq!(
-            ServerKernelFlavor::Tigerlake.pkg_prefix(),
-            "linux-appsynergy-server-tigerlake"
-        );
+    fn v3_gate_reads_features_not_model_names() {
+        assert!(supports_x86_64_v3(SKYLAKE_FLAGS));
+        // Same model string, features masked as a hypervisor may present them.
+        assert!(!supports_x86_64_v3("fpu sse sse2 avx popcnt"));
+    }
+
+    #[test]
+    fn legacy_names_are_not_selectable() {
+        let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E3-1270 v6", SKYLAKE_FLAGS);
+        for legacy in LEGACY_KERNEL_PKGS {
+            assert!(!s.pkg_prefixes.contains(legacy), "{legacy} still selectable");
+        }
     }
 }

@@ -297,25 +297,106 @@ fn server_kernel_pkg_prefix_does_not_cross_match() {
 }
 
 #[test]
-fn kernel_select_is_variant_user_choice_cpu_auto() {
-    // Operator picks variant; CPU only chooses which *package* within that variant.
-    use crate::detect::{select_kernel_for_variant, ServerKernelFlavor};
-    let desk = select_kernel_for_variant(false, "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz");
-    assert_eq!(desk.pkg_prefixes, ["linux-appsynergy"]);
-    let coffee = select_kernel_for_variant(true, "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz");
-    assert_eq!(coffee.server_flavor, Some(ServerKernelFlavor::Skylake));
-    assert_eq!(coffee.pkg_prefixes.len(), 1);
-    assert_eq!(coffee.pkg_prefixes[0], "linux-appsynergy-server-skylake");
-    let nuc = select_kernel_for_variant(true, "11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz");
-    assert_eq!(nuc.pkg_prefixes, ["linux-appsynergy-server-tigerlake"]);
+fn installer_kernel_package_matches_the_pin() {
+    // The package name lives in two places that must never drift: the pin the
+    // build asserts against, and the constant the installer looks for on the ISO.
+    // A rename in one alone produces media whose kernel the installer cannot find.
+    let pin = include_str!("../../../kernel/upstream/PIN");
+    let pkgbase = pin
+        .lines()
+        .find_map(|l| l.strip_prefix("PKGBASE="))
+        .expect("PIN must declare PKGBASE");
+    assert_eq!(
+        pkgbase,
+        crate::detect::KERNEL_PKG,
+        "kernel/upstream/PIN says {pkgbase}, detect::KERNEL_PKG says {}",
+        crate::detect::KERNEL_PKG
+    );
+    let kuname = pin
+        .lines()
+        .find_map(|l| l.strip_prefix("KERNEL_UNAME="))
+        .expect("PIN must declare KERNEL_UNAME");
+    assert!(
+        kuname.ends_with(pkgbase),
+        "KERNEL_UNAME {kuname} does not end in PKGBASE {pkgbase}"
+    );
 }
 
 #[test]
-fn install_local_kernel_no_longer_installs_both_server_flavors() {
-    // Contract: server path installs one CPU-mapped package, not skylake+tigerlake.
+fn kernel_selection_is_one_package_for_every_variant() {
+    // There is one kernel. Variant selects packages and services, never the kernel,
+    // and no CPU model may route to a different build — that split is what made
+    // the two metals drift apart.
+    use crate::detect::{select_kernel_for_variant, KERNEL_PKG};
+    let v3 = "fpu sse sse2 ssse3 fma sse4_1 sse4_2 movbe popcnt aes xsave avx f16c \
+              lahf_lm abm bmi1 avx2 bmi2";
+    for server in [false, true] {
+        for cpu in [
+            "Intel(R) Xeon(R) CPU E3-1270 v6 @ 3.80GHz",
+            "11th Gen Intel(R) Core(TM) i7-1185G7 @ 3.00GHz",
+            "12th Gen Intel(R) Core(TM) i9-12900K",
+        ] {
+            let s = select_kernel_for_variant(server, cpu, v3);
+            assert_eq!(s.pkg_prefixes, [KERNEL_PKG], "cpu={cpu} server={server}");
+        }
+    }
+}
+
+#[test]
+fn pre_v3_cpu_fails_before_install_not_at_boot() {
+    // One GENERIC_V3 kernel replaced the per-`-march=` packages, so an unbootable
+    // pairing is now representable. It must be refused up front: the failure is
+    // otherwise a clean install that never comes back.
+    use crate::detect::select_kernel_for_variant;
+    let nehalem = "fpu sse sse2 ssse3 sse4_1 sse4_2 popcnt lahf_lm";
+    let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU X5670 @ 2.93GHz", nehalem);
+    assert!(s.pkg_prefixes.is_empty());
     let src = include_str!("main.rs");
-    assert!(src.contains("CPU-mapped host-max only"));
-    assert!(!src.contains("Server ships **both** host-max kernels"));
+    assert!(
+        src.contains("this CPU cannot run the kernel AppSynergy ships"),
+        "find_kernel_pkg_pairs must bail on an empty selection"
+    );
+}
+
+#[test]
+fn apparmor_is_enabled_on_the_cmdline_because_the_kernel_does_not_default_it() {
+    // Verified against the shipped upstream config: CONFIG_SECURITY_APPARMOR=y,
+    // CONFIG_DEFAULT_SECURITY_DAC=y, CONFIG_LSM="landlock,lockdown,yama,integrity,bpf".
+    // AppArmor is present and inactive. `systemctl enable apparmor` still succeeds,
+    // so nothing surfaces the gap at install time — only the cmdline closes it.
+    let c = disk::render_cmdline_luks(
+        &[("cryptroot".into(), "uuid0".into())],
+        "UUID=btrfs-root",
+        "",
+    );
+    assert!(c.contains("lsm="), "cmdline must set an explicit LSM list");
+    let lsm = c
+        .split_whitespace()
+        .find(|t| t.starts_with("lsm="))
+        .unwrap()
+        .trim_start_matches("lsm=");
+    let names: Vec<&str> = lsm.split(',').collect();
+    assert!(names.contains(&"apparmor"), "apparmor missing from {lsm}");
+    // The upstream defaults must survive: dropping one to add apparmor would
+    // silently disable landlock or lockdown.
+    for kept in ["landlock", "lockdown", "yama", "integrity", "bpf"] {
+        assert!(names.contains(&kept), "{kept} dropped from {lsm}");
+    }
+    // Operator-supplied extras must still land after it.
+    let c2 = disk::render_cmdline_luks(&[], "UUID=r", "ip=dhcp");
+    assert!(c2.contains("apparmor") && c2.trim_end().ends_with("ip=dhcp"));
+}
+
+#[test]
+fn retired_kernel_packages_are_fallback_only() {
+    // The old names stay recognisable so pre-rename media still installs, but they
+    // must never be preferred over the current package.
+    use crate::detect::LEGACY_KERNEL_PKGS;
+    for legacy in LEGACY_KERNEL_PKGS {
+        assert_ne!(*legacy, crate::detect::KERNEL_PKG);
+    }
+    let src = include_str!("main.rs");
+    assert!(src.contains("using retired package"));
 }
 
 #[test]
