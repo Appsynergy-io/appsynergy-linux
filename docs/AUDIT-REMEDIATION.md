@@ -22,7 +22,8 @@ External 18-agent audit (2026-08) → three read-only verification sweeps confir
 | U3 disk-safety | #14 | explicit disk-source precedence (typed flag wins); `--yes` refuses auto-detected disks; real block-device + partition + live-medium rejection |
 | U4 robustness | #17 | server-critical `systemctl enable` hard-fails; server os-release VARIANT corrected (real file); final ESP re-sync + dual-ESP unlock verification |
 | U6 gate-lints | #13 | shellcheck discovers every script (incl. extensionless, by shebang); unanchored-glob lint; write-usb removability gate |
-| U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. **Kernel not yet rebuilt** — see deferred |
+| U7 kernel-tigerlake | #8 | fragment gains `NETFILTER_XT_MATCH_PHYSDEV=m`; `br_netfilter` in modules-load; fragment assertions in gate. Kernel `7.1.5-3` built, signed, published — **not installed, NUC not rebooted**; see deferred |
+| repo prune | #21 | `build-repo.sh` keeps only the newest version per pkgname before `repo-add` — staging held two kernel versions and the indexed one was decided by glob order |
 | U9 docs+CA | #18 | docs teach Required signatures; pre-rename paths fixed (incl. a live `backup-to-usb.sh` bug); one-secret keyfile model documented honestly; `appsynergy-ca-certificates` 1-3 makes the Root the only anchor, Intermediate neutral-trust chain filler |
 | CI | #10, #11, #15 | act_runner on skylake k3s (ns `ci`, host-exec mode, capacity 1, hard limits, restricted securityContext, enforced NetworkPolicy); `check.sh` runs on every push |
 | gate determinism | #16 | `--mode='a-st'` in `make-srctars.sh` — see below |
@@ -43,13 +44,29 @@ This is the class of defect a workstation-only gate cannot see, and it appeared 
 
 ## Deferred — operator decision required
 
-Tigerlake NetworkPolicy is still fail-open (8 `KUBE-NWPLCY-` chains vs skylake's 93). Closing it is three ordered steps, none of them started:
+Tigerlake NetworkPolicy is fail-open (8 `KUBE-NWPLCY-` chains vs skylake's 93) until the NUC boots a kernel carrying `CONFIG_NETFILTER_XT_MATCH_PHYSDEV`. `linux-appsynergy-server-tigerlake 7.1.5-3` is built and published for exactly that; steps 1–2 below are done.
 
-1. `packages/scripts/build-linux-appsynergy-server-flavor.sh tigerlake` — KDIR is present and matches `kernel/upstream/PIN` (`74d5bae`, 7.1.5). Assert both `CONFIG_BRIDGE_NETFILTER=m` and `CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m` in the built config before going further.
-2. `build-repo.sh && publish-repo.sh` — needs the GPG signing key (`sdx:appsynergy-linux/gpg-signing-key`); publish now refuses unsigned and self-verifies.
-3. **Reboot the NUC** into the new kernel, then confirm `iptables-save -t filter | grep -c KUBE-NWPLCY-` exceeds 8 and probe a denied pod path. Loading `br_netfilter` on skylake would likewise flip its perimeter from fail-open to enforcing mid-flight — review `kubectl get netpol -A` for missing allow-rules first.
+**The dangerous step is 4, not 5.** The NUC has no TPM, so every boot needs a hand LUKS unlock over initrd SSH. If `mkinitcpio` produces an image without the dropbear/ssh-unlock hooks, the box does not come back and needs physical access — verify before rebooting, not after.
 
-Any tigerlake initrd change belongs in the same window.
+1. ~~Build~~ — done 2026-08-06: `linux-appsynergy-server-tigerlake 7.1.5-3`, built config carries `CONFIG_NETFILTER_XT_MATCH_PHYSDEV=m` and the package ships `xt_physdev.ko.zst`.
+2. ~~Sign + publish~~ — done: signed under the pinned key, published, `verify-repo.sh` clean. Both hosts resolve `7.1.5-3` under `Required DatabaseRequired`; neither has installed it.
+3. **Re-verify at window time.** A published package is not a fresh one: confirm `pacman -Si linux-appsynergy-server-tigerlake` still resolves to the intended version, and that nothing has superseded it since.
+4. **Install on the NUC** (this rewrites `/boot` and runs `mkinitcpio`; no reboot yet):
+   ```
+   pacman -Sy linux-appsynergy-server-tigerlake linux-appsynergy-server-tigerlake-headers
+   lsinitcpio /boot/initramfs-linux-appsynergy-server-tigerlake.img | grep -E 'usr/bin/dropbear|root/.ssh/authorized_keys|appsynergy-initrd-sshd.service'
+   ```
+   All three must be present. Absent → do not reboot; the installer's `verify_initrd_unlock` enforces this contract for new installs, and this is the manual equivalent.
+   Keep the previous kernel and its initramfs in `/boot` as the fallback boot entry.
+5. **Reboot**, unlock over initrd SSH, then confirm the fix landed:
+   ```
+   zgrep CONFIG_NETFILTER_XT_MATCH_PHYSDEV /proc/config.gz    # expect =m
+   lsmod | grep br_netfilter                                   # persisted via modules-load.d
+   iptables-save -t filter | grep -c KUBE-NWPLCY-              # expect >> 8
+   ```
+   Then probe a pod path a NetworkPolicy denies, to prove enforcement rather than presence.
+
+Skylake needs no reboot — it already runs a PHYSDEV kernel and enforces. Note its `br_netfilter` is now persisted, so a future reboot loads it at boot instead of relying on the k3s unit's soft modprobe; that is the intended state, not drift.
 
 ## Deferred — accepted risk / future work
 
