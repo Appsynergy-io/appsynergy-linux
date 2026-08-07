@@ -63,7 +63,18 @@ avail_gib=$(df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc '0-9')
   echo "        set BUILD_ROOT=/path/with/space to build elsewhere" >&2
   exit 1; }
 WORK=$(mktemp -d "$BUILD_ROOT/build.XXXXXX")
-cleanup() { [[ ${KEEP_WORK:-0} == 1 ]] && { echo "work tree kept: $WORK"; return; }; rm -rf "$WORK"; }
+# Keep the tree on any non-zero exit. A wrong assertion is discovered at the very
+# end of a 45-minute ThinLTO build, and deleting the evidence means paying for
+# that build again just to look at the artifact — which is exactly what happened
+# the first time this ran.
+cleanup() {
+  local rc=$?
+  if [[ $rc -ne 0 || ${KEEP_WORK:-0} == 1 ]]; then
+    echo "work tree kept for inspection: $WORK" >&2
+  else
+    rm -rf "$WORK"
+  fi
+}
 trap cleanup EXIT
 echo "==> build root: $WORK (${avail_gib}G free)"
 
@@ -149,8 +160,29 @@ moddir=$(bsdtar -tf "$PKG" | sed -n 's|^usr/lib/modules/\([^/]*\)/$|\1|p' | head
   echo "REFUSE: built kernel is '$moddir', pin says '$WANT_UNAME'" >&2; exit 1; }
 echo "    uname OK: $moddir"
 
-cfg=$(ls -1t "$WORK"/config-*-"$PKGBASE" 2>/dev/null | head -1 || true)
-[[ -n $cfg ]] || cfg="$WORK/config"
+# The built config comes out of the headers package, which is the copy that
+# actually ships (`install -Dt "$builddir" ... .config` in package_*-headers).
+#
+# Do NOT glob for upstream's `config-${pkgver}-${pkgrel}${pkgbase#linux}` drop:
+# that expression only produces a separating dash while pkgbase starts with
+# "linux", and ours does not — it writes `config-7.1.6-1appsynergy-linux`. The
+# first version of this check globbed for a dash, missed, and silently fell back
+# to $WORK/config — the *input* config — which reports X86_64_VERSION=1 no matter
+# what was built. An assertion that can fall back to its own input is not an
+# assertion, so there is no fallback here: unreadable means refuse.
+HDR=""
+shopt -s nullglob
+for f in "$WORK/$PKGBASE"-headers-[0-9]*.pkg.tar.zst; do
+  [[ $f == *-debug-* ]] && continue
+  HDR="$f"; break
+done
+shopt -u nullglob
+[[ -n $HDR ]] || { echo "REFUSE: no $PKGBASE-headers package to read the built config from" >&2; exit 1; }
+cfg="$WORK/built.config"
+bsdtar -xOf "$HDR" "usr/lib/modules/$moddir/build/.config" > "$cfg" 2>/dev/null
+[[ -s $cfg ]] || {
+  echo "REFUSE: could not read usr/lib/modules/$moddir/build/.config from $(basename "$HDR")" >&2
+  exit 1; }
 grep -q '^CONFIG_X86_NATIVE_CPU=y' "$cfg" && {
   echo "REFUSE: built config has X86_NATIVE_CPU=y — this kernel is tied to the build host" >&2
   exit 1; }
