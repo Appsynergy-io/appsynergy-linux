@@ -49,6 +49,33 @@ for f in \
   echo "    staged $(basename "$f")"
 done
 
+# Prune stale rels before signing: staging only ever accumulates (build_pkg and
+# the kernel loop both copy in, nothing removes), and `repo-add ./*.pkg.tar.zst`
+# over two versions of one package indexes whichever the glob yielded last —
+# incidental ordering, not a decision. A kernel rebuild is exactly this case:
+# 7.1.5-2 and 7.1.5-3 sit side by side and the box gets whichever won the glob.
+# Identity comes from .PKGINFO, never the filename: pkgnames contain dashes and
+# version fields, so splitting the basename guesses wrong on the flavor kernels.
+echo "==> Pruning superseded packages from staging"
+declare -A keep_file keep_ver
+for f in "$REPO"/*.pkg.tar.zst; do
+  [[ -f "$f" ]] || continue
+  info=$(bsdtar -xOqf "$f" .PKGINFO 2>/dev/null) || continue
+  name=$(awk -F' = ' '$1=="pkgname"{print $2; exit}' <<<"$info")
+  ver=$(awk -F' = ' '$1=="pkgver"{print $2; exit}' <<<"$info")
+  [[ -n "$name" && -n "$ver" ]] || { echo "    SKIP unreadable .PKGINFO: $(basename "$f")"; continue; }
+  if [[ -z "${keep_ver[$name]:-}" ]] || (( $(vercmp "$ver" "${keep_ver[$name]}") > 0 )); then
+    if [[ -n "${keep_file[$name]:-}" ]]; then
+      echo "    prune $(basename "${keep_file[$name]}") (superseded by $ver)"
+      rm -f "${keep_file[$name]}" "${keep_file[$name]}.sig"
+    fi
+    keep_ver[$name]="$ver"; keep_file[$name]="$f"
+  else
+    echo "    prune $(basename "$f") (superseded by ${keep_ver[$name]})"
+    rm -f "$f" "$f.sig"
+  fi
+done
+
 # Signing key: fingerprint pinned in pkgbuilds/appsynergy-keyring. Every package
 # gets a detached sig; repo-add --sign covers the database. SIGN=0 skips (dev).
 GPGKEY="${GPGKEY:-3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1}"
