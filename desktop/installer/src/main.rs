@@ -873,9 +873,12 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
     let text = fs::read_to_string(&pacman_conf).context("read target pacman.conf")?;
     if !text.lines().any(|l| l.starts_with("XferCommand")) {
         // Gitea's package API stalls with libalpm's downloader; curl is reliable.
+        // No `-C -`: resume appends to any bytes already at %o, so an interrupted
+        // download leaves a file longer than the package and every later pacman run
+        // fails the checksum on a disk that is already committed. Fetch whole.
         let new = text.replacen(
             "[options]",
-            "[options]\nXferCommand = /usr/bin/curl -L -C - -f --connect-timeout 30 --retry 3 -o %o %u",
+            "[options]\nXferCommand = /usr/bin/curl -L -f --connect-timeout 30 --retry 3 -o %o %u",
             1,
         );
         fs::write(&pacman_conf, new)?;
