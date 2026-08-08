@@ -148,4 +148,35 @@ branding_glob_anchor() {
 }
 stage branding-glob branding_glob_anchor
 
+# 9. Every executable in the ISO profile is declared in profiledef.sh.
+#    mkarchiso copies airootfs with `cp -af --no-preserve=ownership,mode`, so the
+#    mode on disk is discarded and anything undeclared ships 0644. This hid for
+#    releases: k3s and both LUKS-unlock scripts were non-executable in the live
+#    image, and only worked on installed systems because the installer chmods
+#    them on the target. Discovered, not listed — a new executable is caught the
+#    day it lands. Secrets are asserted the other way: never world-readable.
+profile_modes() {
+  local prof="$ROOT/desktop/iso" rc=0 f p mode
+  declare -A decl
+  while IFS= read -r p; do decl["$p"]=1; done \
+    < <(sed -n 's/.*\["\([^"]*\)"\]=.*/\1/p' "$prof/profiledef.sh")
+  while IFS= read -r f; do
+    p="${f#"$prof/airootfs"}"
+    [[ -n "${decl[$p]:-}" ]] || { echo "undeclared executable ships 0644: $p"; rc=1; }
+  done < <(find "$prof/airootfs" -type f -perm -u+x | sort)
+  # A declared path that no longer exists is a stale entry, not a failure to
+  # ship — but it means the array and the tree have drifted.
+  for p in "${!decl[@]}"; do
+    [[ -e "$prof/airootfs$p" ]] || echo "note: declared but absent from airootfs: $p"
+  done
+  # k3s.service.env carries runtime secrets; 0644 in a squashfs is world-readable
+  # to anyone holding the USB.
+  mode=$(sed -n 's|.*\["/opt/appsynergy/k3s/k3s.service.env"\]="0:0:\([0-7]*\)".*|\1|p' \
+           "$prof/profiledef.sh")
+  [[ "$mode" == "600" ]] || {
+    echo "k3s.service.env must be declared 0:0:600 in profiledef.sh (got '${mode:-unset}')"; rc=1; }
+  return $rc
+}
+stage profile-modes profile_modes
+
 exit $fail
