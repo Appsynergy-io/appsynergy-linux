@@ -33,4 +33,13 @@ file_permissions=(
   ["/usr/local/bin/grok"]="0:0:755"
   ["/usr/local/bin/claude"]="0:0:755"
   ["/usr/local/bin/agent"]="0:0:755"
+  # mkarchiso copies airootfs with `cp -af --no-preserve=ownership,mode`, so an
+  # executable that is not declared here ships 0644. The installer chmods these
+  # three on the target, which is why it was invisible — but they are unusable
+  # in the live environment, which is where a rescue operator meets them.
+  ["/opt/appsynergy/k3s/k3s"]="0:0:755"
+  ["/etc/appsynergy/server/initrd-unlock"]="0:0:755"
+  ["/etc/appsynergy/server/initcpio-install-ssh-unlock"]="0:0:755"
+  # Runtime secrets. 0644 in the image would publish them to every USB reader.
+  ["/opt/appsynergy/k3s/k3s.service.env"]="0:0:600"
 )
