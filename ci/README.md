@@ -62,6 +62,19 @@ kubectl apply -f ci/k8s/                                     # netpol, config, P
 
 PVCs stay `Pending` until the pod schedules — `local-path` is WaitForFirstConsumer.
 
+## What lives where on the runner
+
+Two of these look interchangeable and are not. A project that parks build output
+under `/data/cache` is writing into act_runner's own store.
+
+| Path | Owner |
+|------|-------|
+| `/data/cache` | **act_runner's**: `cache.dir` in the ConfigMap, plus `bolt.db` |
+| `/data/work` | act_runner job workspaces; `workdir_parent`, pruned per job |
+| `/data/build` | where a project puts its own build cache (sdx: `CARGO_TARGET_DIR`) |
+| `/cache/cargo` | `CARGO_HOME` — registry index and crate sources |
+| `/var/cache/pacman/pkg` | **empty by design**, and not a fault to fix: `check.sh` builds with `makepkg -d`, so pacman is never invoked, and uid 1000 on a read-only rootfs could not install a package anyway |
+
 ## Verify
 
 ```bash
