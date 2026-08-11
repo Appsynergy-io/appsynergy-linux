@@ -72,19 +72,40 @@ done
 skipped=$(( ${#all[@]} - ${#pkgs[@]} - ${#dbs[@]} ))
 ((skipped > 0)) && echo "  ($skipped file(s) in staging not indexed by the db — not published)"
 
+# What is published, by content, read once from the PUBLISHED database.
+#
+# The skip below used to compare Content-Length, which is all a HEAD gives, and
+# that silently corrupted the repo. A detached ed25519 signature is always 119
+# bytes, so every .sig was skipped forever after its first publish, while a
+# non-reproducible rebuild that changed a package's byte count did upload. Six
+# of the eight published packages ended up carrying a signature over different
+# bytes, and SigLevel = Required refuses every one of them:
+#   error: appsynergy-keyring: signature ... is invalid
+# A hash cannot agree the way a length can, and the db is small enough to fetch.
+declare -A PUB_SUM
+pub_db=$(mktemp)
+if curl -fsS -o "$pub_db" "$BASE/appsynergy.db.tar.gz" 2>/dev/null; then
+  while read -r n s; do PUB_SUM["$n"]="$s"; done < <(
+    tar xzOf "$pub_db" --wildcards '*/desc' 2>/dev/null | awk '
+      /^%FILENAME%/  {getline; f=$0}
+      /^%SHA256SUM%/ {getline; print f, $0}')
+  echo "  (published db describes ${#PUB_SUM[@]} package(s) to compare against)"
+else
+  echo "  (no published db yet — publishing everything)"
+fi
+rm -f "$pub_db"
+
 put_file() {
   local f="$1" force="${2:-}" name
   name=$(basename "$f")
-  # A package filename encodes name-ver-rel-arch, so it is immutable: if one of
-  # the same size is already up, re-uploading only opens a window where clients
-  # 404 on it between the DELETE and the PUT. The db must always be replaced.
-  if [[ "$force" != "force" ]]; then
-    local remote local_len
-    local_len=$(stat -c%s "$f")
-    remote=$(curl -sSI "$BASE/$name" 2>/dev/null \
-      | awk 'tolower($1)=="content-length:"{gsub(/\r/,"");print $2}' | tail -1)
-    if [[ -n "$remote" && "$remote" == "$local_len" ]]; then
-      echo "  same $name (already published, ${local_len}B) — skipped"
+  # A package filename encodes name-ver-rel-arch, so identical content really is
+  # already up and re-uploading only opens a window where clients 404 on it
+  # between the DELETE and the PUT. Anything the published db does not describe
+  # — every .sig — is always uploaded, which is what keeps a package and its
+  # signature in step. The db itself is always replaced.
+  if [[ "$force" != "force" && -n "${PUB_SUM[$name]:-}" ]]; then
+    if [[ "${PUB_SUM[$name]}" == "$(sha256sum "$f" | cut -d' ' -f1)" ]]; then
+      echo "  same $name (published bytes match) — skipped"
       return 0
     fi
   fi
