@@ -14,6 +14,12 @@
 #                          packages are deliberately NOT installed
 #   5 namcap            -> namcap (pulls python/pyalpm)
 #   6 kernel-pin        -> git (no-ops: no kernel tree in the pod)
+# The runners are instance-wide, so sdx's scripts/check.sh derives deps here too:
+#   ui stage           -> rust wasm32-unknown-unknown target
+#   deps stage         -> cargo-audit
+#   release (musl)     -> musl (x86_64-linux-musl-gcc) + the musl rust target
+# Both stages skip themselves when the tool is absent, so a missing one shows up
+# as a green run that checked nothing.
 # Plus: git + nodejs for actions/checkout@v4 — a JS action, which host mode runs
 # with the node binary on PATH; without it every job fails at checkout.
 #
@@ -22,7 +28,7 @@
 FROM archlinux:latest
 
 RUN pacman -Syu --noconfirm --needed \
-      base-devel git shellcheck namcap rustup nodejs curl ca-certificates \
+      base-devel git shellcheck namcap rustup nodejs curl ca-certificates musl \
  && pacman -Scc --noconfirm \
  && rm -rf /var/cache/pacman/pkg/* /var/lib/pacman/sync/*
 
@@ -36,6 +42,18 @@ RUN curl -fsSL -o /tmp/act_runner \
  && printf '%s  /tmp/act_runner\n' "${ACT_RUNNER_SHA256}" | sha256sum -c - \
  && install -Dm755 /tmp/act_runner /usr/local/bin/act_runner \
  && rm -f /tmp/act_runner
+
+# cargo-audit for the deps stage, pinned by version AND published sha256 like
+# act_runner above. Prebuilt binary: a source build costs minutes per image.
+ARG CARGO_AUDIT_VERSION=v0.22.2
+ARG CARGO_AUDIT_SHA256=ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39
+RUN curl -fsSL -o /tmp/cargo-audit.tgz \
+      "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2F${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-gnu-${CARGO_AUDIT_VERSION}.tgz" \
+ && printf '%s  /tmp/cargo-audit.tgz\n' "${CARGO_AUDIT_SHA256}" | sha256sum -c - \
+ && tar -xzf /tmp/cargo-audit.tgz -C /tmp \
+ && install -Dm755 "/tmp/cargo-audit-x86_64-unknown-linux-gnu-${CARGO_AUDIT_VERSION}/cargo-audit" \
+      /usr/local/bin/cargo-audit \
+ && rm -rf /tmp/cargo-audit.tgz "/tmp/cargo-audit-x86_64-unknown-linux-gnu-${CARGO_AUDIT_VERSION}"
 
 # uid/gid 1000 must equal runAsUser/runAsGroup and fsGroup in the Deployment:
 # the PVCs are group-owned by 1000 and makepkg refuses to run as root.
@@ -52,9 +70,14 @@ RUN groupadd -g 1000 build \
 ENV RUSTUP_HOME=/opt/rustup \
     CARGO_HOME=/opt/cargo \
     PATH=/usr/local/bin:/usr/bin
+# rustfmt/clippy and both targets are baked, so a job never writes RUSTUP_HOME —
+# the reason the sdx workflow used to copy /opt/rustup onto a PVC, where it then
+# went stale and hid every toolchain change made here.
 RUN mkdir -p /opt/rustup /opt/cargo \
  && rustup toolchain install stable --profile minimal --no-self-update \
  && rustup default stable \
+ && rustup component add rustfmt clippy \
+ && rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown \
  && chmod -R a+rX /opt/rustup /opt/cargo
 
 COPY entrypoint.sh /usr/local/bin/act-runner-entrypoint

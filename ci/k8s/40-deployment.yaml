@@ -47,9 +47,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: act-runner
-          # Repin to a digest after the first push: `podman image inspect --format
-          # '{{index .RepoDigests 0}}'`. Tag tracks act_runner version + image rel.
-          image: git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-1
+          # Tag tracks act_runner version + image revision. IfNotPresent below
+          # means a rebuild must bump the tag; the node ignores a mutated one.
+          image: git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-2
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
