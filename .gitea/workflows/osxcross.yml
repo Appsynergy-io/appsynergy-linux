@@ -1,0 +1,35 @@
+name: osxcross
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/runner-osxcross/**'
+      - '.gitea/workflows/osxcross.yml'
+
+# Runs on the OVH k3s OSXCross act_runner (ci/k8s/41-deployment-osxcross.yaml).
+# Label must match runner.labels in 21-configmap-act-runner-osxcross.yaml.
+# Host exec: toolchain + SDK are baked into appsynergy-ci-osxcross.
+jobs:
+  darwin-arm64-smoke:
+    runs-on: osxcross-host
+    steps:
+      - uses: actions/checkout@v4
+      - name: toolchain smoke
+        run: |
+          set -euo pipefail
+          oa64-clang --version
+          rustc --version --verbose
+          rustup target list --installed | grep -F aarch64-apple-darwin
+          test -d "${SDKROOT:-/sdk}"
+          echo "SDKROOT=${SDKROOT:-/sdk}"
+      - name: link smoke (hello aarch64-apple-darwin)
+        run: |
+          set -euo pipefail
+          cat > /tmp/hello.rs <<'RS'
+          fn main() {
+              println!("hello aarch64-apple-darwin");
+          }
+          RS
+          rustc --target aarch64-apple-darwin -C linker=oa64-clang -o /tmp/hello-darwin /tmp/hello.rs
+          file /tmp/hello-darwin
+          file /tmp/hello-darwin | grep -E 'Mach-O|arm64|aarch64'
