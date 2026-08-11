@@ -6,7 +6,7 @@ limits **4 CPU / 8 Gi** so builds cannot choke production.
 
 | Runner | Label | Image | Job |
 |--------|-------|-------|-----|
-| `k3s-arch-host` | `arch-host:host` | `appsynergy-ci-runner:0.2.13-1` | `.gitea/workflows/ci.yml` → `scripts/check.sh` |
+| `k3s-arch-host` | `arch-host:host` | `appsynergy-ci-runner:0.2.13-2` | `.gitea/workflows/ci.yml` → `scripts/check.sh`; sdx gate + musl release |
 | `k3s-osxcross` | `osxcross-host:host` | `appsynergy-ci-osxcross:0.1.0` | `.gitea/workflows/osxcross.yml` → `aarch64-apple-darwin` |
 
 | Path | Role |
@@ -32,10 +32,18 @@ needs `gitea-registry` — created below, referenced by `k8s/40-deployment.yaml`
 ## Build, push, deploy
 
 ```bash
-podman build -t git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-1 ci/runner
-podman login git.appsynergy.io && podman push git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-1
-podman image inspect --format '{{index .RepoDigests 0}}' \
-  git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-1     # repin the Deployment to this digest
+# imagePullPolicy is IfNotPresent, so a rebuilt image needs a NEW TAG — pushing
+# over 0.2.13-1 would leave the node running the copy it already has.
+# -f is required: docker looks for `Dockerfile`, this repo writes `Containerfile`.
+docker build -f ci/runner/Containerfile \
+  -t git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-2 ci/runner
+sdx run --with gitea=kv/gitea -- bash -c \
+  'printf %s "$GITEA_TOKEN" | docker login git.appsynergy.io -u imabee --password-stdin'
+docker push git.appsynergy.io/imabee/appsynergy-ci-runner:0.2.13-2
+docker logout git.appsynergy.io
+# kubectl runs on the node, not here: pipe the manifest over ssh.
+ssh root@144.217.66.212 kubectl apply -f - < ci/k8s/40-deployment.yaml
+ssh root@144.217.66.212 kubectl -n ci rollout status deploy/act-runner
 
 kubectl apply -f ci/k8s/00-namespace.yaml
 # Pull credentials for the private package. --docker-password reads the PAT from the
