@@ -1,15 +1,21 @@
-# ci/ — self-hosted Gitea Actions runner
+# ci/ — self-hosted Gitea Actions runners (OVH k3s only)
 
-act_runner 0.2.13 on the OVH k3s node, namespace `ci`, one replica, `capacity: 1`. Runs
-`.gitea/workflows/ci.yml`, which is `scripts/check.sh` and nothing else. Label
-`arch-host:host` — host exec mode, jobs run in the pod's own Arch userland as uid 1000
-`build`. No docker, no DinD: k3s is the only runtime here.
+Two act_runner 0.2.13 Deployments in namespace `ci` on the OVH skylake node. Host
+exec mode, uid 1000 `build`, no docker/DinD. Each has **capacity: 1** and hard
+limits **4 CPU / 8 Gi** so builds cannot choke production.
+
+| Runner | Label | Image | Job |
+|--------|-------|-------|-----|
+| `k3s-arch-host` | `arch-host:host` | `appsynergy-ci-runner:0.2.13-1` | `.gitea/workflows/ci.yml` → `scripts/check.sh` |
+| `k3s-osxcross` | `osxcross-host:host` | `appsynergy-ci-osxcross:0.1.0` | `.gitea/workflows/osxcross.yml` → `aarch64-apple-darwin` |
 
 | Path | Role |
 |------|------|
-| `runner/Containerfile` | Arch image: check.sh deps + nodejs (`actions/checkout@v4` is a JS action) + pinned act_runner |
+| `runner/Containerfile` | Arch image: check.sh deps + nodejs + pinned act_runner |
 | `runner/entrypoint.sh` | register once into `/data/.runner`, then `act_runner daemon` |
-| `k8s/` | apply in filename order: namespace, netpol, config, PVCs, deployment |
+| `runner-osxcross/Containerfile` | multi-stage OSXCross + rust aarch64-apple-darwin + act_runner |
+| `runner-osxcross/sdk/` | **gitignored** MacOSX SDK tarball (packaged once from LAN MacBook) |
+| `k8s/` | apply in filename order; `2x`/`3x`/`4x` are arch-host, `21`/`31`/`41` are osxcross |
 
 ## Registry
 
@@ -61,8 +67,38 @@ curl -sS -H "Authorization: token $GITEA_TOKEN" \
 Status `idle` + label `arch-host` = the next push runs the gate. Registration is
 one-shot; afterwards `kubectl -n ci delete secret act-runner-reg`.
 
+## OSXCross runner (aarch64-apple-darwin)
+
+SDK is packaged **once** from the LAN MacBook (`imma@192.168.101.14`, Xcode.app),
+never from OVH Apple downloads. CI jobs never contact the Mac.
+
+```bash
+# 1. SDK tarball already on the build host under ci/runner-osxcross/sdk/
+#    (scp from Mac after gen_sdk_package.sh — agent does this)
+
+# 2. Build + push
+podman build -t git.appsynergy.io/imabee/appsynergy-ci-osxcross:0.1.0 ci/runner-osxcross
+podman login git.appsynergy.io && podman push git.appsynergy.io/imabee/appsynergy-ci-osxcross:0.1.0
+podman image inspect --format '{{index .RepoDigests 0}}' \
+  git.appsynergy.io/imabee/appsynergy-ci-osxcross:0.1.0
+
+# 3. Register + apply (token never echoed)
+curl -sS -X POST -H "Authorization: token $GITEA_TOKEN" \
+  https://git.appsynergy.io/api/v1/repos/imabee/appsynergy-linux/actions/runners/registration-token \
+  | jq -rj .token \
+  | kubectl -n ci create secret generic act-runner-osxcross-reg --from-file=token=/dev/stdin
+kubectl apply -f ci/k8s/21-configmap-act-runner-osxcross.yaml \
+              -f ci/k8s/31-pvcs-osxcross.yaml \
+              -f ci/k8s/41-deployment-osxcross.yaml
+kubectl -n ci rollout status deploy/act-runner-osxcross
+```
+
+Verify: logs show `k3s-osxcross` / `osxcross-host`; workflow `osxcross.yml` goes green.
+
 ## Roll back
 
-`kubectl delete ns ci` takes the Deployment, PVCs (reclaim Delete) and NetworkPolicies.
-Then delete the runner in Gitea (Repo → Settings → Actions → Runners), or it lingers
+`kubectl delete ns ci` takes every Deployment, PVC (reclaim Delete) and NetworkPolicy.
+Then delete runners in Gitea (Repo → Settings → Actions → Runners), or they linger
 `offline` and jobs queue against a label nothing serves.
+
+Partial: `kubectl -n ci delete deploy/act-runner-osxcross pvc/act-runner-osxcross-work pvc/act-runner-osxcross-cargo-cache`

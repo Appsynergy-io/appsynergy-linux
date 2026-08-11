@@ -1,0 +1,114 @@
+# OSXCross aarch64-apple-darwin runner. Same form as act-runner; separate
+# image, PVCs, registration, and capacity so it cannot steal arch-host jobs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: act-runner-osxcross
+  namespace: ci
+  labels:
+    app.kubernetes.io/name: act-runner-osxcross
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: act-runner-osxcross
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: act-runner-osxcross
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: gitea-registry
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: act-runner
+          image: git.appsynergy.io/imabee/appsynergy-ci-osxcross@sha256:34e4a5484f62352e8834fb8de1a190c61df71f797aa060329b3fbdb7db8bfb33
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: CONFIG_FILE
+              value: /etc/act_runner/config.yaml
+            - name: GITEA_INSTANCE_URL
+              value: https://git.appsynergy.io
+            - name: RUNNER_NAME
+              value: k3s-osxcross
+            - name: RUNNER_LABELS
+              value: osxcross-host:host
+            - name: RUNNER_FILE
+              value: /data/.runner
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: act-runner-osxcross-reg
+                  key: token
+                  optional: true
+            - name: HOME
+              value: /home/build
+            - name: CARGO_HOME
+              value: /cache/cargo
+            - name: RUSTUP_HOME
+              value: /opt/rustup
+            - name: SDKROOT
+              value: /sdk
+            - name: MACOSX_DEPLOYMENT_TARGET
+              value: "11.0"
+            - name: PATH
+              value: /opt/osxcross/bin:/usr/local/bin:/usr/bin
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 2Gi
+            limits:
+              # Parity with act-runner — hard cgroup cap so clang/cargo cannot
+              # take the whole 8-core production node.
+              cpu: "4"
+              memory: 8Gi
+              ephemeral-storage: 20Gi
+          volumeMounts:
+            - name: work
+              mountPath: /data
+            - name: cargo-cache
+              mountPath: /cache/cargo
+            - name: config
+              mountPath: /etc/act_runner
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/build
+      volumes:
+        - name: work
+          persistentVolumeClaim:
+            claimName: act-runner-osxcross-work
+        - name: cargo-cache
+          persistentVolumeClaim:
+            claimName: act-runner-osxcross-cargo-cache
+        - name: config
+          configMap:
+            name: act-runner-osxcross-config
+            defaultMode: 0444
+        - name: tmp
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: home
+          emptyDir:
+            sizeLimit: 2Gi
