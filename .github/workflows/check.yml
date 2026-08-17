@@ -32,9 +32,10 @@ jobs:
       - name: gate
         env:
           RUSTUP_HOME: /opt/rustup
-          CARGO_HOME: /opt/cargo
+          CARGO_HOME: /home/build/.cargo
         run: |
           set -euo pipefail
           chown -R build:build "$GITHUB_WORKSPACE"
-          runuser -u build -- env RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
+          install -d -o build -g build /home/build/.cargo
+          runuser -u build -- env RUSTUP_HOME=/opt/rustup CARGO_HOME=/home/build/.cargo \
             ./scripts/check.sh

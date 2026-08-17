@@ -59,15 +59,22 @@ jobs:
           GPGKEY: 3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1
           SIGN: "1"
           GNUPGHOME: /home/build/.gnupg
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           chown -R build:build "$GITHUB_WORKSPACE"
+          pass=()
           if [[ -f /home/build/.gnupg/pass ]]; then
-            export GPG_PASSPHRASE_FILE=/home/build/.gnupg/pass
+            pass=(GPG_PASSPHRASE_FILE=/home/build/.gnupg/pass)
           fi
-          runuser -u build -- env GPGKEY="$GPGKEY" SIGN=1 GNUPGHOME=/home/build/.gnupg \
-            ./packages/scripts/pull-kernel.sh
-          runuser -u build -- env GPGKEY="$GPGKEY" SIGN=1 GNUPGHOME=/home/build/.gnupg \
-            ./packages/scripts/build-repo.sh
-          runuser -u build -- env GPGKEY="$GPGKEY" SIGN=1 GNUPGHOME=/home/build/.gnupg \
-            ./packages/scripts/publish-repo.sh
+          as_build() {
+            runuser -u build -- env \
+              GPGKEY="$GPGKEY" SIGN=1 GNUPGHOME=/home/build/.gnupg \
+              GH_TOKEN="${GH_TOKEN:-}" GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
+              "${pass[@]}" \
+              "$@"
+          }
+          as_build ./packages/scripts/pull-kernel.sh
+          as_build ./packages/scripts/build-repo.sh
+          as_build ./packages/scripts/publish-repo.sh
