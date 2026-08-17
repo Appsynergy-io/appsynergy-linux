@@ -6,10 +6,10 @@
 # blocked on a Vault policy grant for pki_int at the time of writing.
 pkgname=appsynergy-keyring
 pkgver=1
-pkgrel=2
+pkgrel=3
 pkgdesc='AppSynergy Linux package signing keyring'
 arch=('any')
-url='https://git.appsynergy.io/imabee/appsynergy-linux'
+url='https://github.com/Appsynergy-io/appsynergy-linux'
 license=('MIT')
 install=appsynergy-keyring.install
 source=('appsynergy.gpg' 'appsynergy-trusted' 'appsynergy-revoked' 'appsynergy-packaging.key' 'LICENSE')

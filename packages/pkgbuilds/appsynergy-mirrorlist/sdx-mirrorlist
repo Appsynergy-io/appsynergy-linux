@@ -1,5 +1,0 @@
-# sdx package server (Gitea generic packages)
-# Used by /etc/pacman.conf.d/appsynergy.conf — do not add random third-party hosts here.
-# Published by sdx's own release pipeline (sdx: .gitea/workflows/release.yml), so
-# this is a different repo from appsynergy-repo and never shares its database.
-Server = https://git.appsynergy.io/api/packages/appsynergy/generic/sdx-repo/x86_64

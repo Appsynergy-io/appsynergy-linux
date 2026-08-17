@@ -179,4 +179,28 @@ profile_modes() {
 }
 stage profile-modes profile_modes
 
+# 10. One Server URL. The published Release is the contract; a drifted
+#     mirrorlist, iso fallback, or publish script ships a 404 to every host.
+repo_url() {
+  local want f
+  want=$(sed -n '1p' "$ROOT/packages/pacman/SERVER" | tr -d '[:space:]')
+  [[ -n "$want" ]] || { echo "packages/pacman/SERVER is empty"; return 1; }
+  [[ "$want" == https://github.com/*/releases/download/* ]] || {
+    echo "SERVER is not a GitHub Release URL: $want"; return 1; }
+  grep -qxF "Server = $want" \
+    "$ROOT/packages/pkgbuilds/appsynergy-mirrorlist/appsynergy-mirrorlist" || {
+    echo "mirrorlist Server != packages/pacman/SERVER"; return 1; }
+  grep -qxF "Server = $want" "$ROOT/desktop/iso/pacman.conf" || {
+    echo "iso/pacman.conf remote Server != packages/pacman/SERVER"; return 1; }
+  for f in publish-repo.sh verify-repo.sh fetch-repo.sh pull-kernel.sh; do
+    grep -q 'pacman/SERVER' "$ROOT/packages/scripts/$f" || {
+      echo "$f does not read packages/pacman/SERVER"; return 1; }
+    if grep -qE 'git\.appsynergy\.io|GITEA_' "$ROOT/packages/scripts/$f"; then
+      echo "$f still names Gitea"; return 1
+    fi
+  done
+  return 0
+}
+stage repo-url repo_url
+
 exit $fail

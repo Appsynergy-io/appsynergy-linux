@@ -1,0 +1,31 @@
+name: check
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# The pipeline IS scripts/check.sh — run it locally before every commit.
+# Arch userland in a container: makepkg refuses uid 0, so the gate runs as `build`.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: deps
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed \
+            base-devel git shellcheck namcap rustup nodejs curl sudo
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          id -u build >/dev/null 2>&1 || useradd -m -u 1000 build
+      - uses: actions/checkout@v4
+      - name: gate
+        run: |
+          set -euo pipefail
+          chown -R build:build "$GITHUB_WORKSPACE"
+          runuser -u build -- ./scripts/check.sh

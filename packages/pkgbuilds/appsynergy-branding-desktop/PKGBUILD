@@ -4,10 +4,10 @@
 # cannot force a package change (or an initramfs rebuild) on production servers.
 pkgname=appsynergy-branding-desktop
 pkgver=1
-pkgrel=3
+pkgrel=4
 pkgdesc='AppSynergy Linux graphical identity: hicolor icons, start-menu entry, Plymouth theme'
 arch=('any')
-url='https://git.appsynergy.io/imabee/appsynergy-linux'
+url='https://github.com/Appsynergy-io/appsynergy-linux'
 license=('MIT')
 install=appsynergy-branding-desktop.install
 # >=3 forces the identity split into the same pacman transaction; without it,

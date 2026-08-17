@@ -79,7 +79,19 @@ done
 
 # Signing key: fingerprint pinned in pkgbuilds/appsynergy-keyring. Every package
 # gets a detached sig; repo-add --sign covers the database. SIGN=0 skips (dev).
+# GPG_PASSPHRASE_FILE: CI holds a protected key; repo-add calls `gpg` on PATH,
+# so wrap it when a passphrase file is set. Never print the file.
 GPGKEY="${GPGKEY:-3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1}"
+if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
+  [[ -f "$GPG_PASSPHRASE_FILE" ]] || { echo "GPG_PASSPHRASE_FILE not a file"; exit 1; }
+  _gpgwrap=$(mktemp -d)
+  cat > "$_gpgwrap/gpg" <<EOF
+#!/bin/bash
+exec /usr/bin/gpg --pinentry-mode loopback --passphrase-file $(printf '%q' "$GPG_PASSPHRASE_FILE") "\$@"
+EOF
+  chmod 700 "$_gpgwrap/gpg"
+  export PATH="$_gpgwrap:$PATH"
+fi
 if [[ "${SIGN:-1}" == "1" ]]; then
   echo "==> Signing packages ($GPGKEY)"
   for f in "$REPO"/*.pkg.tar.zst; do

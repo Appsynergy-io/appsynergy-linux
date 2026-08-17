@@ -2,7 +2,7 @@
 
 AppSynergy Linux — installer ISO, kernels, and the pacman repository that serves them.
 
-Consolidated 2026-08-04 from three repositories (`appsynergy-desktop`, `kernel`, `appsynergy-packages`), whose full history is preserved here via `git subtree`.
+The live `[appsynergy]` origin is the GitHub Release tag `repo-x86_64`. The ISO is built from this tree and is not hosted.
 
 | Subtree | Contents |
 |---------|----------|
@@ -25,7 +25,8 @@ Packages and the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351CF0D
 ## Build
 
 ```bash
-sudo desktop/scripts/build-iso.sh    # -> desktop/out/
+packages/scripts/fetch-repo.sh       # staging from the GitHub Release (includes the kernel)
+sudo desktop/scripts/build-iso.sh    # -> desktop/out/  (not uploaded)
 ```
 
 Per-area detail lives in `desktop/README.md`, `kernel/README.md`, `packages/README.md`. Working notes for agents: `CLAUDE.md`.

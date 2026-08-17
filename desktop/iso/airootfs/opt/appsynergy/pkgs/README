@@ -11,4 +11,4 @@ build-iso.sh stages these automatically when present:
 Legacy fallback: linux-cachyos-igpu{,-headers}-*.pkg.tar.zst
 
 Published also at:
-  https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64
+  https://github.com/Appsynergy-io/appsynergy-linux/releases/download/repo-x86_64

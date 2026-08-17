@@ -11,7 +11,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$ROOT/repo/x86_64"
-BASE="${GITEA_BASE:-https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64}"
+SERVER_FILE="$ROOT/pacman/SERVER"
+[[ -f "$SERVER_FILE" ]] || { echo "missing $SERVER_FILE"; exit 1; }
+BASE="$(sed -n '1p' "$SERVER_FILE" | tr -d '[:space:]')"
+[[ -n "$BASE" ]] || { echo "empty $SERVER_FILE"; exit 1; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -19,6 +22,12 @@ mkdir -p "$tmp/pub"
 
 # db tarball -> one "pkgname-pkgver-pkgrel" per line
 entries() { tar tzf "$1" 2>/dev/null | sed -n 's#^\([^/]*\)/$#\1#p' | sort; }
+
+http_code() {
+  # GitHub Release assets 302 to objects.githubusercontent.com. Follow, then
+  # report the last status. -f would turn a 404 into curl-exit 22 with no code.
+  curl -sSLI -o /dev/null -w '%{http_code}' --max-redirs 10 "$1" || echo 000
+}
 
 [[ -f "$REPO/appsynergy.db.tar.gz" ]] || {
   echo "no local db at $REPO — run build-repo.sh first"; exit 1; }
@@ -55,8 +64,8 @@ shopt -s nullglob
 for d in "$tmp"/pub/*/desc; do
   fn=$(awk '/^%FILENAME%/{getline; print; exit}' "$d")
   [[ -n "$fn" ]] || continue
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$fn" || echo 000)
-  sig=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$fn.sig" || echo 000)
+  code=$(http_code "$BASE/$fn")
+  sig=$(http_code "$BASE/$fn.sig")
   if [[ "$code" == "200" && "$sig" == "200" ]]; then
     echo "  ok   $fn (+sig)"
   else
@@ -70,7 +79,7 @@ shopt -u nullglob
 # the db it synced. Both names must resolve, or every sync fails at the client.
 echo "=== database signatures ==="
 for n in appsynergy.db.sig appsynergy.db.tar.gz.sig; do
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -I "$BASE/$n" || echo 000)
+  code=$(http_code "$BASE/$n")
   if [[ "$code" == "200" ]]; then
     echo "  ok   $n"
   else

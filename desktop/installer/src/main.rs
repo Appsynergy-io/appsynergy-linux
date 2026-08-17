@@ -872,7 +872,7 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
     let pacman_conf = cfg.mnt.join("etc/pacman.conf");
     let text = fs::read_to_string(&pacman_conf).context("read target pacman.conf")?;
     if !text.lines().any(|l| l.starts_with("XferCommand")) {
-        // Gitea's package API stalls with libalpm's downloader; curl is reliable.
+        // Some remotes stall with libalpm's downloader; curl is reliable.
         // No `-C -`: resume appends to any bytes already at %o, so an interrupted
         // download leaves a file longer than the package and every later pacman run
         // fails the checksum on a disk that is already committed. Fetch whole.
@@ -1285,9 +1285,9 @@ VARIANT="Server"
 VARIANT_ID=server
 BUILD_ID=rolling
 ANSI_COLOR="0;36"
-HOME_URL="https://git.appsynergy.io/imabee"
-DOCUMENTATION_URL="https://git.appsynergy.io/imabee"
-SUPPORT_URL="https://git.appsynergy.io/imabee"
+HOME_URL="https://github.com/Appsynergy-io/appsynergy-linux"
+DOCUMENTATION_URL="https://github.com/Appsynergy-io/appsynergy-linux"
+SUPPORT_URL="https://github.com/Appsynergy-io/appsynergy-linux"
 LOGO=appsynergy-linux
 "#
         } else {
@@ -1297,9 +1297,9 @@ ID=appsynergy-linux
 ID_LIKE=arch
 BUILD_ID=rolling
 ANSI_COLOR="0;36"
-HOME_URL="https://git.appsynergy.io/imabee"
-DOCUMENTATION_URL="https://git.appsynergy.io/imabee"
-SUPPORT_URL="https://git.appsynergy.io/imabee"
+HOME_URL="https://github.com/Appsynergy-io/appsynergy-linux"
+DOCUMENTATION_URL="https://github.com/Appsynergy-io/appsynergy-linux"
+SUPPORT_URL="https://github.com/Appsynergy-io/appsynergy-linux"
 LOGO=appsynergy-linux
 "#
         };

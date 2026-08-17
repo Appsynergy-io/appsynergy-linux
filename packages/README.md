@@ -1,15 +1,14 @@
 # AppSynergy Linux packages
 
-Public pacman repository for AppSynergy Linux (desktop workstation image).
+Public pacman repository for AppSynergy Linux.
 
 ## Pacman repo (HTTP)
 
 | Item | Value |
 |------|--------|
-| Owner | `imabee` |
-| Generic package name | `appsynergy-repo` |
-| Version / arch path | `x86_64` |
-| **Server URL** | `https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64` |
+| Origin | GitHub Release tag `repo-x86_64` |
+| **Server URL** | `https://github.com/Appsynergy-io/appsynergy-linux/releases/download/repo-x86_64` |
+| Source of truth | `packages/pacman/SERVER` |
 
 Install `appsynergy-mirrorlist`; it owns the repo section and appends the `Include` to `/etc/pacman.conf` in `post_install` (pacman has no `pacman.conf.d` convention). What it ships as `/etc/pacman.conf.d/appsynergy.conf`:
 
@@ -25,7 +24,7 @@ Packages **and** the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351
 
 | Package | Role |
 |---------|------|
-| `appsynergy-linux` / headers | The kernel — upstream CachyOS `linux-cachyos-server` + ThinLTO, renamed. One package, every machine. |
+| `appsynergy-linux` / headers | The kernel — built in a sandbox, hosted on the same Release. CI does not compile it. |
 | `appsynergy-keyring` | The GPG key every other package is verified against |
 | `appsynergy-ca-certificates` | AppSynergy Root CA trust anchor (+ Intermediate as chain filler) |
 | `appsynergy-mirrorlist` | Registers the `[appsynergy]` repo |
@@ -33,26 +32,23 @@ Packages **and** the database are GPG-signed by `3B90D92D1E28E9E060D5C53D15D4351
 | `appsynergy-branding-desktop` | icons, start entry, Plymouth — graphical installs only |
 | `appsynergy-wallpapers` | desktop + lock wallpapers — graphical installs only |
 
-Kernel build: `./scripts/build-appsynergy-linux.sh`. There are no config fragments —
-the contract is `kernel/upstream/PIN`.
-
-Brave/Thorium stay as local USB payload or AUR for now (large / AUR).
+Kernel build: `./scripts/build-appsynergy-linux.sh` (sandbox). There are no config fragments — the contract is `kernel/upstream/PIN`.
 
 ## Layout
 
 ```text
 pkgbuilds/     # PKGBUILDs
-scripts/       # build-repo.sh publish-repo.sh
+scripts/       # build-repo.sh publish-repo.sh fetch-repo.sh pull-kernel.sh
 repo/x86_64/   # local staging (repo-add output); not committed (gitignored)
-pacman/        # appsynergy.conf drop-in
+pacman/        # SERVER + appsynergy.conf drop-in
 ```
 
-## Publish (maintainer)
+## Publish
 
 ```bash
-# stage .pkg.tar.zst into repo/x86_64/, then:
 ./scripts/build-repo.sh
-./scripts/publish-repo.sh   # needs GITEA_TOKEN or tea config
+./scripts/publish-repo.sh   # needs `gh` (GITHUB_TOKEN or gh auth)
+./scripts/verify-repo.sh
 ```
 
-Public GET (no auth) for package files once published.
+`packages.yml` on `main` is the publisher after bootstrap. Public GET, no auth.

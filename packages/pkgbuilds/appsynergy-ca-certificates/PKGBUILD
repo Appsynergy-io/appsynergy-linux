@@ -13,10 +13,10 @@
 # same Root instead of being a second, independent trust root.
 pkgname=appsynergy-ca-certificates
 pkgver=1
-pkgrel=3
+pkgrel=4
 pkgdesc='AppSynergy Root CA trust anchor; Intermediate CA as chain filler'
 arch=('any')
-url='https://git.appsynergy.io/imabee/appsynergy-linux'
+url='https://github.com/Appsynergy-io/appsynergy-linux'
 license=('MIT')
 depends=('ca-certificates-utils')
 install=appsynergy-ca-certificates.install

@@ -787,7 +787,7 @@ fn server_os_release_replaces_the_workstation_variant() {
     assert!(out.contains("ID=appsynergy-linux\n"));
     assert!(out.contains("ID_LIKE=arch\n"));
     assert!(out.contains("LOGO=appsynergy-linux\n"));
-    assert!(out.contains("HOME_URL=\"https://git.appsynergy.io/imabee\"\n"));
+    assert!(out.contains("HOME_URL=\"https://github.com/Appsynergy-io/appsynergy-linux\"\n"));
     // idempotent: re-running over an already-server file changes nothing
     assert_eq!(disk::rebrand_os_release_server(&out), out);
 

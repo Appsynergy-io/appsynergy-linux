@@ -6,6 +6,8 @@ Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
 
 | Package | Version | Change |
 |---------|---------|--------|
+| `appsynergy-mirrorlist` | 1-8 | `[appsynergy]` Server is the GitHub Release `repo-x86_64`; drops `[sdx]`. Existing hosts cannot discover this from the old origin — one-shot `pacman -U` of this package, then `pacman -Sy` |
+| `appsynergy-branding` | 3-4 | os-release URLs point at `github.com/Appsynergy-io/appsynergy-linux` |
 | `appsynergy-mirrorlist` | 1-6 | scriptlet migrates legacy inline TrustAll `[appsynergy]` to the signed drop-in (keyring-gated, validated, backed up); depends on `appsynergy-keyring` |
 | `appsynergy-linux` | 7.1.6-1 | **New, and replaces every kernel package.** Upstream CachyOS `linux-cachyos-server` built with ThinLTO (their published `-lto` recipe) under the AppSynergy name — `uname -r` = `7.1.6-1-appsynergy-linux`. Config is upstream's, unmodified: AppSynergy no longer maintains kernel Kconfig. One package for desktop and server, every metal. |
 | `linux-appsynergy`, `linux-appsynergy-server-skylake`, `linux-appsynergy-server-tigerlake` | — | **Retired.** `build-repo.sh` drops them from staging. Hosts still running them keep working; swapping is a maintenance-window action because the package rename moves `/boot` filenames and needs new bootloader entries — procedure in `docs/AUDIT-REMEDIATION.md`. |

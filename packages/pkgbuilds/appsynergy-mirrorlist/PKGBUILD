@@ -1,26 +1,23 @@
 # Maintainer: AppSynergy
 pkgname=appsynergy-mirrorlist
 pkgver=1
-pkgrel=7
+pkgrel=8
 pkgdesc='Pacman mirrorlist / repo registration for AppSynergy Linux packages'
 arch=('any')
-url='https://git.appsynergy.io/imabee/appsynergy-linux'
+url='https://github.com/Appsynergy-io/appsynergy-linux'
 license=('MIT')
 # Keyring in the same transaction: its .install populates pacman-key before our
 # scriptlet migrates a legacy TrustAll section to Required.
 depends=('appsynergy-keyring')
 install=appsynergy-mirrorlist.install
-source=('appsynergy-mirrorlist' 'sdx-mirrorlist' 'appsynergy.conf' 'LICENSE')
-sha256sums=('1808ff9fa3b6e1d6d2dbd9d8cf044555c5542ba86c97f8c33c899e7265475fa8'
-            '77e8c16a3706d6ded5faaad3b67a7a7d096a644c7716b780997a66aa0f5c61f3'
-            '48704e683eacb92e61fab5eb097200860048b78a6b7726eb35fc6344297de8fe'
+source=('appsynergy-mirrorlist' 'appsynergy.conf' 'LICENSE')
+sha256sums=('9f2a3b586d7a3c9bebd5c5698a05202b605960d0bd9180eb69a3f423652ac263'
+            '8777a8c39de70ae0559ea0facc5387ae2f5b3910e6c0b7c41f01db4463592e99'
             '34ac2e1db0fdddd3ff94d39eb16922f92a6dc7fd5e74843ac26e619b3ea73e99')
 
 package() {
   install -Dm644 "$srcdir/appsynergy-mirrorlist" \
     "$pkgdir/etc/pacman.d/appsynergy-mirrorlist"
-  install -Dm644 "$srcdir/sdx-mirrorlist" \
-    "$pkgdir/etc/pacman.d/sdx-mirrorlist"
   install -Dm644 "$srcdir/appsynergy.conf" \
     "$pkgdir/etc/pacman.conf.d/appsynergy.conf"
 

@@ -6,10 +6,11 @@ AppSynergy Linux: the installer ISO, the kernels it ships, and the pacman repo t
 
 ```bash
 scripts/check.sh                                       # release gate — run before every commit; CI runs exactly this
-sudo desktop/scripts/build-iso.sh                      # installer ISO -> desktop/out/
+sudo desktop/scripts/build-iso.sh                      # installer ISO -> desktop/out/ (not uploaded)
 sudo desktop/scripts/run-iso-build.sh                  # clean-build entrypoint (wipes dead work dirs)
 desktop/scripts/stage-rescue-payload.sh                # OVH rescue tarball -> desktop/out/
-packages/scripts/build-appsynergy-linux.sh             # the kernel (one, for every metal)
+packages/scripts/build-appsynergy-linux.sh             # the kernel (sandbox; one, for every metal)
+packages/scripts/fetch-repo.sh                         # staging from the GitHub Release (ISO / local)
 packages/scripts/build-repo.sh && packages/scripts/publish-repo.sh   # stage + publish pacman repo
 packages/scripts/verify-repo.sh                        # assert published == staged; exit 1 on drift
 ```
@@ -25,6 +26,7 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 | `kernel/bench/` | committed benchmark runs |
 | `packages/pkgbuilds/` | PKGBUILDs — `appsynergy-mirrorlist` and the identity split below; **no kernel** |
 | `desktop/brand-review/` | wallpaper/icon **candidates** for review only; never read at runtime |
+| `packages/pacman/SERVER` | the published pacman Server URL — one line, the contract |
 | `packages/repo/x86_64/` | local pacman staging, gitignored — `repo-add` output, input to publish |
 
 ## Invariants and gotchas
@@ -32,10 +34,9 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 - **Nothing a running machine reads may live in this checkout.** If a booted system needs it, it ships in a package. Violating this is invisible until the checkout moves: the desktop and lock wallpapers were set to absolute paths under `brand-review/` and died the moment `appsynergy-desktop/` became `appsynergy-linux/desktop/`. Wallpapers now come from `appsynergy-wallpapers`; keep it that way.
 - **Identity is split by audience, not by topic.** `appsynergy-branding` = os-release, motd, greeting, ASCII — every machine. `appsynergy-branding-desktop` (icons, start entry, Plymouth) + `appsynergy-wallpapers` = graphical installs only. Servers must never pull either: it keeps cosmetic churn off production and stops a branding upgrade triggering `mkinitcpio -P` on a headless box. `install_branding` in `desktop/installer/src/main.rs` gates this; `adversarial_tests.rs` locks it.
 - **Never glob `appsynergy-branding-*`** — it also matches `appsynergy-branding-desktop-*`. Anchor the version: `appsynergy-branding-[0-9]*`. Both `build-iso.sh` and the installer depend on this; an unanchored glob ships Plasma assets to servers and makes the ISO prune delete the identity package.
-- **The published repo is the Gitea generic package**, `https://git.appsynergy.io/api/packages/imabee/generic/appsynergy-repo/x86_64`. Host `/etc/pacman.conf` and `/etc/pacman.d/appsynergy-mirrorlist` point there, never at a path in this tree; only ISO builds read the local repo. Publishing is **not** fire-and-forget — staging drifted four branding releases ahead of production for two weeks unnoticed. Run `verify-repo.sh` after every publish.
-- **pacman has no `pacman.conf.d` convention.** It reads only what `/etc/pacman.conf` explicitly `Include`s, so the drop-in `appsynergy-mirrorlist` ships is inert on its own — the OVH server ran for weeks with `[appsynergy]` unresolvable and no `sync/appsynergy.db` at all. `appsynergy-mirrorlist>=1-2` appends the `Include` in `post_install`, gated on `pacman-conf --repo=…` so it no-ops where a section already exists. Appended **last**: repo order is priority order, so it can never shadow core/extra.
-- **The drop-in registers two repos, and `[sdx]`'s database is not published from here.** sdx ships from its own CI to `…/appsynergy/generic/sdx-repo/x86_64` — one database, one writer. A mirrorlist rel must therefore never be published before the repo it names has a db up: `pacman -Sy` fails outright on a 404 database, on every host at once. `>=1-7` wires both repos or neither, and refuses to append a second `Include` where a legacy inline `[appsynergy]` exists — a duplicate section is `could not register 'appsynergy' database (database already registered)`, which is every transaction, not a warning.
-- **`publish-repo.sh` uploads packages before the database**, and DELETEs each name before PUT (Gitea 409s on re-PUT). A db naming an unuploaded package 404s mid-transaction on every client.
+- **The published repo is the GitHub Release** `repo-x86_64`. The Server URL lives in `packages/pacman/SERVER`; `check.sh` stage `repo-url` fails if the mirrorlist, ISO remote fallback, or publish/verify/fetch scripts drift from it. Hosts read that URL via `appsynergy-mirrorlist`, never a path in this tree; only ISO builds read the local staging dir. Run `verify-repo.sh` after every publish.
+- **pacman has no `pacman.conf.d` convention.** It reads only what `/etc/pacman.conf` explicitly `Include`s, so the drop-in `appsynergy-mirrorlist` ships is inert on its own. `>=1-2` appends the `Include` in `post_install`, gated on `pacman-conf --repo=appsynergy` so it no-ops where a section already exists. Appended **last**: repo order is priority order, so it can never shadow core/extra. `>=1-8` registers `[appsynergy]` only.
+- **`publish-repo.sh` uploads packages before the database** (`gh release upload --clobber`). A db naming an unuploaded package 404s mid-transaction on every client. GitHub asset URLs 302; `verify-repo.sh` follows redirects.
 - **`desktop/iso/pacman.conf` carries an absolute `file://` path** to `packages/repo/x86_64` — pacman config has no relative form. `build-iso.sh` asserts it matches `PKG_REPO` and aborts on drift. Update both together.
 - **Never put `-C -` in an `XferCommand`.** curl's resume appends to whatever bytes already sit at `%o`, so one stale partial in the cache yields a package *longer* than the real one and pacstrap dies with "invalid or corrupted package (checksum)" — cached `branding-desktop-1-3` was 239940 bytes against the repo's 239781. The same line is written into every installed system by `register_appsynergy_repo` in `desktop/installer/src/main.rs`, where it would instead fail a `pacman -Syu` on a committed disk. Fetch whole; these downloads are one-shot.
 - **`appsynergy-keyring` errors during mkarchiso's pkglist step are expected.** `pacman -Q --sysroot` reads the airootfs `pacman.conf`, whose `[appsynergy]` is `Required DatabaseRequired`, while `/etc/pacman.d/gnupg` does not exist until `pacman-init.service` runs `pacman-key --init && --populate` at live boot. The image is correct: `appsynergy-mirrorlist` depends on `appsynergy-keyring`, so the key ships wherever the repo is configured. Do not silence this by baking a trustdb into the squashfs.

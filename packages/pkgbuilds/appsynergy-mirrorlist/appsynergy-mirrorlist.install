@@ -43,8 +43,7 @@ _appsynergy_upgrade_trustall() {
     !skip
   ' "$conf" > "$tmp"
   _appsynergy_wire_repo "$tmp"
-  if ! pacman-conf --config "$tmp" --repo=appsynergy >/dev/null 2>&1 \
-     || ! pacman-conf --config "$tmp" --repo=sdx >/dev/null 2>&1; then
+  if ! pacman-conf --config "$tmp" --repo=appsynergy >/dev/null 2>&1; then
     echo ">>> WARNING: rewritten pacman.conf failed validation; keeping TrustAll config"
     rm -f "$tmp"
     return 0
@@ -61,34 +60,29 @@ _appsynergy_wire_repo() {
 
   # pacman has NO pacman.conf.d convention — it reads only what pacman.conf
   # explicitly Includes. Shipping the drop-in alone leaves it dead config and
-  # the repo invisible, which is exactly how a production server sat unable to
-  # see [appsynergy] at all while everyone assumed it was subscribed.
-  # Both repos, because the drop-in now carries [sdx] as well and a host wired
-  # for only the first would go on believing it was subscribed to both.
-  if pacman-conf --config "$conf" --repo=appsynergy >/dev/null 2>&1 \
-     && pacman-conf --config "$conf" --repo=sdx >/dev/null 2>&1; then
+  # the repo invisible.
+  if pacman-conf --config "$conf" --repo=appsynergy >/dev/null 2>&1; then
     return 0
   fi
 
   [[ -f $drop ]] || return 0
 
-  # The Include is already here, so package() has just replaced the drop-in and
-  # both sections arrive with it. A second Include would register [appsynergy]
-  # twice, which pacman refuses outright.
+  # The Include is already here, so package() has just replaced the drop-in.
+  # A second Include would register [appsynergy] twice, which pacman refuses.
   grep -qxF "$_include" "$conf" 2>/dev/null && return 0
 
   # A legacy inline [appsynergy] and no Include: appending would duplicate that
   # section and break every transaction, so say what to do instead of doing it.
   if pacman-conf --config "$conf" --repo=appsynergy >/dev/null 2>&1; then
-    echo ">>> WARNING: $conf has an inline [appsynergy] section, so [sdx] was not added."
-    echo ">>> Delete that section and reinstall appsynergy-mirrorlist to get both."
+    echo ">>> WARNING: $conf has an inline [appsynergy] section."
+    echo ">>> Delete that section and reinstall appsynergy-mirrorlist."
     return 0
   fi
 
-  # Appended LAST on purpose. Repo order is priority order, so these land below
+  # Appended LAST on purpose. Repo order is priority order, so this lands below
   # core/extra and can never shadow an official package.
   printf '\n%s\n%s\n' "$_marker" "$_include" >> "$conf"
-  echo ">>> registered [appsynergy] and [sdx] in $conf (appended last = lowest priority)"
+  echo ">>> registered [appsynergy] in $conf (appended last = lowest priority)"
   echo ">>> run 'pacman -Sy' when you want the repo database populated"
 }
 
@@ -99,6 +93,6 @@ post_remove() {
   if grep -qxF "$_include" "$conf" 2>/dev/null; then
     sed -i -e "\|^$(printf '%s' "$_marker" | sed 's/[][\.*^$/]/\\&/g')\$|d" \
            -e "\|^$(printf '%s' "$_include" | sed 's/[][\.*^$/]/\\&/g')\$|d" "$conf"
-    echo ">>> removed the [appsynergy] / [sdx] Include from $conf"
+    echo ">>> removed the [appsynergy] Include from $conf"
   fi
 }
