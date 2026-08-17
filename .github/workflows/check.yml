@@ -20,12 +20,21 @@ jobs:
           set -euo pipefail
           pacman -Syu --noconfirm --needed \
             base-devel git shellcheck namcap rustup nodejs curl sudo
+          # Shared toolchain: Arch cargo/rustc are rustup proxies. Install as
+          # root into /opt so uid 1000 `build` can run makepkg-adjacent cargo test.
+          export RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
+          mkdir -p /opt/rustup /opt/cargo
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
+          chmod -R a+rX /opt/rustup /opt/cargo
           id -u build >/dev/null 2>&1 || useradd -m -u 1000 build
       - uses: actions/checkout@v4
       - name: gate
+        env:
+          RUSTUP_HOME: /opt/rustup
+          CARGO_HOME: /opt/cargo
         run: |
           set -euo pipefail
           chown -R build:build "$GITHUB_WORKSPACE"
-          runuser -u build -- ./scripts/check.sh
+          runuser -u build -- env RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo \
+            ./scripts/check.sh
