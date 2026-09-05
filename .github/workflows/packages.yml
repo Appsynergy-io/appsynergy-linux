@@ -20,8 +20,10 @@ permissions:
 
 jobs:
   publish:
+    name: build, sign, publish [appsynergy]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     container:
       image: archlinux:latest
     steps:
@@ -31,7 +33,9 @@ jobs:
           pacman -Syu --noconfirm --needed \
             base-devel git github-cli gnupg curl sudo
           id -u build >/dev/null 2>&1 || useradd -m -u 1000 build
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: import signing key
         env:
           APPSYNERGY_GPG_KEY: ${{ secrets.APPSYNERGY_GPG_KEY }}
@@ -40,6 +44,7 @@ jobs:
           set -euo pipefail
           [[ -n "${APPSYNERGY_GPG_KEY:-}" ]] || { echo "APPSYNERGY_GPG_KEY secret missing"; exit 1; }
           install -d -m 700 -o build -g build /home/build/.gnupg
+          # shellcheck disable=SC2016  # the body expands inside the child shell, as build
           runuser -u build -- env \
             GNUPGHOME=/home/build/.gnupg \
             APPSYNERGY_GPG_KEY="$APPSYNERGY_GPG_KEY" \

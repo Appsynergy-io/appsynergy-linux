@@ -1,0 +1,8 @@
+rules:
+  unpinned-images:
+    # archlinux:latest is deliberate for now: makepkg needs a rolling Arch
+    # userland and pacman -Syu runs on every job. ci/gha/Containerfile is the
+    # pin to publish when that churn becomes a problem; drop this ignore then.
+    ignore:
+      - check.yml
+      - packages.yml

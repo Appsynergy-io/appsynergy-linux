@@ -9,14 +9,14 @@
 
 - Live environment: console, NetworkManager/iwd, install tools
 - Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `appsynergy-linux`
-- Server target: headless, nftables + WireGuard + networkd, **k3s**, CPU-auto server kernel
+- Server target: headless, nftables + WireGuard + networkd, **k3s**, the same `appsynergy-linux` kernel (GENERIC_V3)
 - Shell: **bash** default (fish optional interactive)
 
 ### Server OS (keep list)
 
 Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 
-**`/home/imma/projects/appsynergy-linux/kernel/docs/SERVER-OS.md`**
+**`kernel/docs/SERVER-OS.md`**
 
 | Keep (summary) | Skip |
 |----------------|------|
@@ -31,7 +31,7 @@ Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
 
 ```bash
 sudo pacman -S --needed archiso
-cd /home/imma/projects/appsynergy-linux/desktop
+cd desktop
 sudo ./scripts/build-iso.sh
 ```
 
@@ -97,7 +97,7 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 
 ## Not included (on purpose)
 
-NVIDIA stack, extra kernels, Cachy themes, CUDA, mingw, Firefox, Plymouth, yay/octopi.
+NVIDIA stack, extra kernels, Cachy themes, CUDA, mingw, Firefox, yay/octopi.
 Browsers: Brave (+ Thorium when packaged); custom browser later.
 
 ## Target extras (packages-target)

@@ -7,18 +7,14 @@ DEST="$ROOT/iso/airootfs/usr/local/bin"
 DOC="$ROOT/iso/airootfs/etc/appsynergy/RESCUE-CLI.txt"
 mkdir -p "$DEST" "$(dirname "$DOC")"
 
-# When build-iso.sh runs under sudo, $HOME is /root. Prefer SUDO_USER home,
-# then common workstation path /home/imma.
+# When build-iso.sh runs under sudo, $HOME is /root. Use SUDO_USER's home,
+# else the caller's; GROK_BIN / CLAUDE_BIN override the lookup entirely.
 if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
   UHOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 else
   UHOME="${HOME:-}"
 fi
-for try in "$UHOME" /home/imma; do
-  [[ -n "$try" && -d "$try" ]] || continue
-  UHOME="$try"
-  break
-done
+[[ -n "$UHOME" && -d "$UHOME" ]] || { echo "ERROR: cannot resolve the build user's home"; exit 1; }
 
 GROK_SRC="${GROK_BIN:-}"
 if [[ -z "$GROK_SRC" ]]; then

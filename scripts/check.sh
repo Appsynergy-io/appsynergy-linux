@@ -4,12 +4,13 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
+LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
 stage() { # name cmd...
   local name="$1"; shift
-  if "$@" >/tmp/check-stage.log 2>&1; then
+  if "$@" >"$LOG" 2>&1; then
     echo "PASS  $name"
   else
-    echo "FAIL  $name"; tail -20 /tmp/check-stage.log | sed 's/^/      /'; fail=1
+    echo "FAIL  $name"; tail -20 "$LOG" | sed 's/^/      /'; fail=1
   fi
 }
 
@@ -202,5 +203,13 @@ repo_url() {
   return 0
 }
 stage repo-url repo_url
+
+# 11. Workflow lint. actionlint catches schema and shell errors; zizmor the
+#     supply-chain ones (unpinned actions, persisted credentials). Ignores live
+#     in .github/zizmor.yml with their reason — never here.
+workflows() {
+  actionlint && zizmor --no-progress --config "$ROOT/.github/zizmor.yml" "$ROOT/.github/workflows"
+}
+stage workflows workflows
 
 exit $fail

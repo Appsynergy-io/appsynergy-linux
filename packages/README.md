@@ -40,7 +40,7 @@ Kernel build: `./scripts/build-appsynergy-linux.sh` (sandbox). There are no conf
 pkgbuilds/     # PKGBUILDs
 scripts/       # build-repo.sh publish-repo.sh fetch-repo.sh pull-kernel.sh
 repo/x86_64/   # local staging (repo-add output); not committed (gitignored)
-pacman/        # SERVER + appsynergy.conf drop-in
+pacman/        # SERVER — the published Server URL, one line
 ```
 
 ## Publish

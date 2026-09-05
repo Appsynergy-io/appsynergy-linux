@@ -5,7 +5,7 @@ iso_name="appsynergy-linux"
 # Joliet volid max 16 chars
 iso_label="ASYN_$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y%m)"
 iso_publisher="AppSynergy <https://github.com/Appsynergy-io/appsynergy-linux>"
-iso_application="AppSynergy Linux installer (Z690 workstation)"
+iso_application="AppSynergy Linux installer"
 iso_version="$(date --date="@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%Y.%m.%d)"
 install_dir="appsynergy"
 buildmodes=('iso')
