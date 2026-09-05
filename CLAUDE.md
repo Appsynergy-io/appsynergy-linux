@@ -47,6 +47,11 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 - **`desktop/work-*/` are root-owned** multi-GB archiso scratch dirs; removing them needs root. `out/` is 16G of built ISOs. Both gitignored. On a KDE workstation exclude both from Baloo — the indexer holds `airootfs/proc` open and an aborted build then fails `umount` ("target is busy"), which `run-iso-build.sh` refuses to start against; clear it with `umount -l`.
 - **The kernel is upstream's, unmodified.** `appsynergy-linux` is CachyOS `linux-cachyos-server` + ThinLTO, renamed and nothing else; there are no config fragments and `check.sh` fails if one reappears. Two consequences bite elsewhere: it is `GENERIC_V3`, so the installer must refuse pre-Haswell CPUs, and its `CONFIG_LSM` omits AppArmor, so the cmdline must add it. Read `kernel/CLAUDE.md` before touching any of it.
 
+## Standards exceptions
+
+- **The CI container is a rolling Arch userland.** `ci.yml` pins `archlinux:base-devel` by digest (mirrored in `ci/gha/Containerfile`, Dependabot-bumped monthly, `check.sh` stage `ci-image` keeps them equal), but every job still runs `pacman -Syu`: makepkg and namcap must match the rolling target the packages are built for.
+- **No version tags, no release job.** `[appsynergy]` is a rolling GitHub Release; `publish` runs on every push to `main` and is a no-op unless a `pkgrel` moved. Each real publish tags `published/<stamp>` on its commit, matching the `appsynergy.db-<stamp>` snapshot it uploaded.
+
 ## Conventions
 
 Subtrees keep their own `.gitignore`; patterns anchored with a leading `/` resolve against the subtree, not the repo root.

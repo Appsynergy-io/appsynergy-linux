@@ -1,6 +1,6 @@
 # Changelog
 
-Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
+Each real publish tags `published/<stamp>` on its commit; the same stamp names the `appsynergy.db-<stamp>` snapshot on the Release. Entries list the packages that moved.
 
 ## Unreleased
 
@@ -12,6 +12,7 @@ Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
 | `appsynergy-keyring` | 1-3 | `url=` points at the GitHub repo; no payload change |
 | gate | — | `make-srctars.sh` forces every mode bit (`--mode='u=rwX,go=rX,a-st'`): a GitHub Actions checkout under umask 002 wrote 664/775 and the payload sha256 drifted in CI only, the same class as the earlier setgid drift. Recorded sums unchanged |
 | `build-repo.sh` | — | A version the published db already names is pulled from the Release, not rebuilt: makepkg output is never byte-identical, so every push to `main` was re-signing and re-uploading the same six versions. New bytes need a `pkgrel` bump; `REBUILD_PUBLISHED=1` forces a local build |
+| CI | — | Container pinned to an `archlinux:base-devel` digest (Dependabot docker on `ci/gha`, gate stage `ci-image` keeps `ci.yml` equal); `dependency-review` job on PRs; `publish` runs in environment `repo-x86_64` and tags `published/<stamp>` after a real publish |
 | gate | — | `check.sh` stage `cargo` runs `fmt --check`, `clippy -D warnings`, `test`, `cargo audit`, `cargo deny` (policy in `desktop/installer/deny.toml`); new stages `gitleaks` (whole history) and `dependabot` (every ecosystem covered). Installer formatted; dead `parse_raid1_choice` removed |
 | CI | — | `dependabot-automerge` job arms `gh pr merge --auto --squash` on every Dependabot PR; it merges once `check` passes under the main ruleset |
 | CI | — | `ci.yml` caches the pacman package cache (weekly key), the rustup toolchain + cargo registry + installer `target` (keyed on `rust-toolchain.toml` + `Cargo.lock`), and the kernel assets (keyed on the Release's asset list; `pull-kernel.sh` skips a file whose size matches). Restore everywhere, save on `main` only |

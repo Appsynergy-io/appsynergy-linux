@@ -25,6 +25,7 @@ command -v gh >/dev/null || { echo "gh not found"; exit 1; }
 
 echo "Publishing to $BASE (GitHub Release $GH@$TAG)"
 
+rm -f "$REPO/.published-stamp"
 shopt -s nullglob
 all=("$REPO"/*)
 shopt -u nullglob
@@ -151,6 +152,10 @@ for f in "${dbs[@]}"; do put_file "$f" force; done
 # rolling back = pointing pacman -U at the packages a dated db names — old
 # package files are never deleted from the registry, only the live db moves.
 STAMP=$(date +%Y%m%d-%H%M)
+# ci.yml tags published/$STAMP on the commit that ran this; the file is the
+# handoff (gitignored with the rest of staging). Removed first so a no-op run
+# never re-tags with a stale stamp.
+printf '%s\n' "$STAMP" > "$REPO/.published-stamp"
 snapdir=$(mktemp -d)
 trap 'rm -rf "$snapdir"' EXIT
 for f in "$REPO/appsynergy.db.tar.gz" "$REPO/appsynergy.db.tar.gz.sig"; do

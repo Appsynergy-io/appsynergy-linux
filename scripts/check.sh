@@ -238,11 +238,23 @@ stage workflows workflows
 #     list drifts silently; a manifest that is not in the list never gets a bump.
 dependabot_cover() {
   local f="$ROOT/.github/dependabot.yml" eco rc=0
-  for eco in cargo github-actions; do
+  for eco in cargo github-actions docker; do
     grep -qE "^\s*-\s*package-ecosystem:\s*$eco\s*$" "$f" || { echo "dependabot.yml lacks $eco"; rc=1; }
   done
   return $rc
 }
 stage dependabot dependabot_cover
+
+# 13. The CI container digest is pinned in two places: ci.yml (what runs) and
+#     ci/gha/Containerfile (what Dependabot bumps — it does not read workflow
+#     files). They must agree, or a bump changes nothing.
+ci_image() {
+  local a b
+  a=$(grep -oE 'archlinux:base-devel@sha256:[0-9a-f]{64}' "$ROOT/.github/workflows/ci.yml" | sort -u)
+  b=$(grep -oE 'archlinux:base-devel@sha256:[0-9a-f]{64}' "$ROOT/ci/gha/Containerfile" | sort -u)
+  [[ -n "$a" && $(wc -l <<<"$a") -eq 1 ]] || { echo "ci.yml must pin one archlinux:base-devel digest"; return 1; }
+  [[ "$a" == "$b" ]] || { echo "digest drift: ci.yml=$a Containerfile=$b — copy the Containerfile digest into ci.yml"; return 1; }
+}
+stage ci-image ci_image
 
 exit $fail
