@@ -9,7 +9,7 @@ mirrors already baked in), so a Debian rescue needs no Arch tooling of its own.
 ## 0. Build the payload (on your workstation)
 
 ```bash
-cd ~/projects/appsynergy-linux/desktop
+cd <checkout>/desktop
 sudo ./scripts/build-bootstrap.sh          # Arch bootstrap tarball → out/
 ./scripts/stage-rescue-payload.sh          # one kernel; no flavour to choose
 ```

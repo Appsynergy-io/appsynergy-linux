@@ -17,12 +17,14 @@ mktar() {
   local dir="$1" out="$2"; shift 2
   # repo-root LICENSE rides at tar root so every package can install it
   #
-  # --mode='a-st' is load-bearing, not tidiness: sort/mtime/owner alone leave the
-  # setgid bit in the header, and a checkout under a Kubernetes volume inherits
-  # g+s on every directory it creates (fsGroup marks the volume root setgid). The
-  # CI runner therefore produced 2755 dirs where the workstation produced 0755 —
-  # same files, same tar 1.35, different sha256, and the gate failed only in CI.
-  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode='a-st' \
+  # --mode is load-bearing, not tidiness. The hash must depend on content and
+  # the owner-exec bit only, so every other mode bit is forced: sort/mtime/owner
+  # alone leave whatever the checkout's umask and filesystem produced in the
+  # header. Two CI failures came from exactly that — a Kubernetes volume gave
+  # every directory g+s (2755 vs 0755), then a GitHub Actions checkout wrote
+  # 664/775 under umask 002 — same files, same tar 1.35, different sha256, and
+  # the gate passed on the workstation and failed only in CI both times.
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX,a-st' \
       -cf "$ROOT/pkgbuilds/$dir/$out" -C "$ROOT/.." LICENSE -C "$ROOT/pkgbuilds/$dir" "$@"
   printf '  %s  %s\n' "$(sha256sum "$ROOT/pkgbuilds/$dir/$out" | cut -d' ' -f1)" "$dir/$out"
 }

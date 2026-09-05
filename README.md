@@ -7,7 +7,7 @@ The live `[appsynergy]` origin is the GitHub Release tag `repo-x86_64`. The ISO 
 | Subtree | Contents |
 |---------|----------|
 | `desktop/` | archiso profile, the Rust installer, ISO/rescue build scripts |
-| `kernel/` | CachyOS config fragments per target metal, benchmarks, BIOS notes |
+| `kernel/` | upstream kernel pin (`upstream/PIN`), the config that shipped, benchmarks, BIOS notes |
 | `packages/` | PKGBUILDs, repo staging and publish scripts, pacman drop-in |
 
 ## Install target

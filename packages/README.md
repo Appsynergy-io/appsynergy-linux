@@ -40,7 +40,7 @@ Kernel build: `./scripts/build-appsynergy-linux.sh` (sandbox). There are no conf
 pkgbuilds/     # PKGBUILDs
 scripts/       # build-repo.sh publish-repo.sh fetch-repo.sh pull-kernel.sh
 repo/x86_64/   # local staging (repo-add output); not committed (gitignored)
-pacman/        # SERVER + appsynergy.conf drop-in
+pacman/        # SERVER — the published Server URL, one line
 ```
 
 ## Publish
@@ -51,4 +51,4 @@ pacman/        # SERVER + appsynergy.conf drop-in
 ./scripts/verify-repo.sh
 ```
 
-`packages.yml` on `main` is the publisher after bootstrap. Public GET, no auth.
+The `publish` job in `.github/workflows/ci.yml` is the publisher: every push to `main`, after `check` passes, and a no-op when the published db already describes the staged packages. Public GET, no auth.

@@ -13,7 +13,7 @@ services, never the kernel. **Keep list only**, no appliance applications.
 | **This** | OS + keep list |
 | [../README.md](../README.md) | the kernel and how it is built |
 | [SERVER-SECURITY.md](SERVER-SECURITY.md) | TPM / SSH unlock |
-| `configs/server.fragment` | Kconfig |
+| `../upstream/PIN` | the kernel contract — upstream commit, options, required modules |
 | `desktop/` | installer, `packages-target-server.txt` |
 
 ## Keep list
@@ -31,7 +31,7 @@ services, never the kernel. **Keep list only**, no appliance applications.
 | **Watchdog** | `system.conf.d/10-watchdog.conf` |
 | **nf_conntrack** before sysctl | modules-load + sysctl unit drop-in |
 
-### Kernel dataplane (`server.fragment`)
+### Kernel dataplane (upstream `linux-cachyos-server` config, unmodified)
 
 WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/ipvlan/vxlan/geneve · eBPF/XDP/BTF/AF_XDP · namespaces · cgroup v2 + CGROUP_BPF · io_uring · igb+igc+virtio · NVMe · dm-crypt · btrfs · overlay · fuse · **AppArmor** LSM (`landlock,lockdown,yama,apparmor,bpf`)
 

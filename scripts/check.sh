@@ -4,12 +4,13 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
+LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
 stage() { # name cmd...
   local name="$1"; shift
-  if "$@" >/tmp/check-stage.log 2>&1; then
+  if "$@" >"$LOG" 2>&1; then
     echo "PASS  $name"
   else
-    echo "FAIL  $name"; tail -20 /tmp/check-stage.log | sed 's/^/      /'; fail=1
+    echo "FAIL  $name"; tail -20 "$LOG" | sed 's/^/      /'; fail=1
   fi
 }
 
@@ -202,5 +203,22 @@ repo_url() {
   return 0
 }
 stage repo-url repo_url
+
+# 11. One workflow file, linted. GitHub treats every file under workflows/ as
+#     its own pipeline with its own check, notification stream and bill; jobs
+#     for different events live in ci.yml and skip with `if:`. actionlint
+#     catches schema and shell errors; zizmor the supply-chain ones (unpinned
+#     actions, persisted credentials). Ignores live in .github/zizmor.yml with
+#     their reason — never here.
+workflows() {
+  local -a wf
+  mapfile -t wf < <(find "$ROOT/.github/workflows" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+  [[ ${#wf[@]} -eq 1 && "$(basename "${wf[0]}")" == ci.yml ]] || {
+    echo "exactly one workflow, .github/workflows/ci.yml, is allowed; found:"; printf '  %s\n' "${wf[@]}"; return 1; }
+  # Explicit paths: actionlint's project autodetection fails inside the CI
+  # container ("no project was found in any parent directories").
+  actionlint "${wf[@]}" && zizmor --no-progress --config "$ROOT/.github/zizmor.yml" "$ROOT/.github/workflows"
+}
+stage workflows workflows
 
 exit $fail

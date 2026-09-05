@@ -13,7 +13,11 @@ WORK="${WORK:-$ROOT/work-$(date +%Y%m%d-%H%M%S)}"
 [[ "$(id -u)" -eq 0 ]] || { echo "Run as root: sudo $0"; exit 1; }
 command -v mkarchiso >/dev/null || { echo "install archiso"; exit 1; }
 
-build_user="${SUDO_USER:-imma}"
+build_user="${SUDO_USER:-}"
+[[ -n "$build_user" && "$build_user" != root ]] || {
+  echo "ERROR: SUDO_USER unset — run via sudo as the user whose cargo/rescue CLIs stage into the image"
+  exit 1
+}
 build_home=$(getent passwd "$build_user" | cut -d: -f6)
 # cargo as the real user (not root) so rustup/toolchain resolves
 if [[ -x "$build_home/.cargo/bin/cargo" ]]; then
@@ -38,39 +42,31 @@ install -m755 "$INSTALLER_SRC/target/release/appsynergy-install" "$INSTALLER_BIN
 file "$INSTALLER_BIN"
 "$INSTALLER_BIN" --help | head -5 || true
 
-# Refresh local packages into profile (kernel, branding, browsers)
-# Kernel build tree (host-local; see kernel/upstream/PIN for what it must contain)
-SRC_PKG="${KDIR:-/home/imma/src/linux-cachyos/linux-cachyos}"
+# Refresh local packages into profile (kernel, branding, browsers). Everything
+# comes from the staging repo: the kernel build stages itself there and
+# fetch-repo.sh fills it from the published Release.
 PKG_REPO="$MONO/packages/repo/x86_64"
-# pacman.conf cannot express a relative path, so its [appsynergy] Server is
-# absolute. Fail loudly if it drifts from PKG_REPO — a stale path silently
-# builds the ISO against the wrong package set.
-want_server="Server = file://$PKG_REPO"
-grep -qxF "$want_server" "$PROFILE/pacman.conf" || {
-  echo "ERROR: $PROFILE/pacman.conf [appsynergy] Server does not match PKG_REPO"
-  echo "  expected: $want_server"
-  echo "  actual:   $(grep -n '^Server = file://' "$PROFILE/pacman.conf" || echo '<none>')"
+# pacman.conf cannot express a relative path, so the committed profile carries a
+# @PKG_REPO@ placeholder that is rendered into $WORK below and passed to
+# mkarchiso -C. Assert the placeholder is still there: a literal path pasted
+# back in would silently build against whatever that path holds.
+grep -qxF 'Server = file://@PKG_REPO@' "$PROFILE/pacman.conf" || {
+  echo "ERROR: $PROFILE/pacman.conf [appsynergy] must read 'Server = file://@PKG_REPO@'"
+  echo "  actual: $(grep -n '^Server = file://' "$PROFILE/pacman.conf" || echo '<none>')"
   exit 1
 }
 DST_PKG="$PROFILE/airootfs/opt/appsynergy/pkgs"
 mkdir -p "$DST_PKG"
 # One kernel, both variants: appsynergy-linux. Version-anchored `-[0-9]*` so the
 # package glob never swallows `-headers-`, same rule as the branding globs.
-staged_kernel=0
-for src in "$SRC_PKG" "$PKG_REPO"; do
-  if compgen -G "$src/appsynergy-linux-[0-9]*.pkg.tar.zst" > /dev/null; then
-    cp -a "$src"/appsynergy-linux-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-    cp -a "$src"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-    staged_kernel=1
-    break
-  fi
-done
-if [[ $staged_kernel == 1 ]]; then
+if compgen -G "$PKG_REPO/appsynergy-linux-[0-9]*.pkg.tar.zst" > /dev/null; then
+  cp -a "$PKG_REPO"/appsynergy-linux-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
+  cp -a "$PKG_REPO"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
   # Retired per-CPU and desktop kernels must not ride along: the installer would
   # find them as a fallback and quietly install a kernel nobody builds any more.
   rm -f "$DST_PKG"/linux-appsynergy-*.pkg.tar.zst "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
 else
-  echo "WARN: no appsynergy-linux package in $SRC_PKG or $PKG_REPO; use --kernel repo"
+  echo "WARN: no appsynergy-linux package in $PKG_REPO; run packages/scripts/fetch-repo.sh or use --kernel repo"
 fi
 # No separate server kernel: appsynergy-linux is both variants. The per-metal
 # skylake/tigerlake packages are retired — see kernel/CLAUDE.md.
@@ -112,7 +108,7 @@ done
 # Stray artifacts that must never reach the image
 rm -f "$PROFILE/airootfs/usr/local/bin/appsynergy-install.bin"
 echo "Local kernel/branding pkgs:"
-ls -lh "$DST_PKG"/linux-*.pkg.tar.zst "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
+ls -lh "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
 
 # Browsers (no Firefox): pull brave from pacman cache if present
 if compgen -G /var/cache/pacman/pkg/brave-bin-*.pkg.tar.zst > /dev/null; then
@@ -204,8 +200,14 @@ export PATH="$ROOT/scripts/buildshims:$PATH"
 command -v mksquashfs | grep -q buildshims \
   || { echo "ERROR: mksquashfs shim not on PATH"; exit 1; }
 
-echo "==> mkarchiso -v -w $WORK -o $OUT $PROFILE"
-mkarchiso -v -w "$WORK" -o "$OUT" "$PROFILE"
+# Render the profile's pacman.conf with this checkout's staging path. The
+# committed file keeps the placeholder; only this copy names a real directory.
+sed "s|@PKG_REPO@|$PKG_REPO|" "$PROFILE/pacman.conf" > "$WORK/pacman.conf"
+grep -qxF "Server = file://$PKG_REPO" "$WORK/pacman.conf" || {
+  echo "ERROR: failed to render [appsynergy] Server into $WORK/pacman.conf"; exit 1; }
+
+echo "==> mkarchiso -v -w $WORK -o $OUT -C $WORK/pacman.conf $PROFILE"
+mkarchiso -v -w "$WORK" -o "$OUT" -C "$WORK/pacman.conf" "$PROFILE"
 
 # Post-build: mkarchiso exits 0 even when the image is unusable.
 ISO_PATH=$(ls -1t "$OUT"/*.iso 2>/dev/null | head -1 || true)

@@ -1,14 +1,18 @@
 Drop local packages here before build-iso.sh (gitignored binaries).
 build-iso.sh stages these automatically when present:
 
-  linux-appsynergy-*.pkg.tar.zst          (preferred kernel)
-  linux-appsynergy-headers-*.pkg.tar.zst
+  appsynergy-linux-*.pkg.tar.zst          (the kernel, both variants)
+  appsynergy-linux-headers-*.pkg.tar.zst
   appsynergy-branding-*.pkg.tar.zst       (required offline after pacstrap)
+  appsynergy-branding-desktop-*.pkg.tar.zst
+  appsynergy-wallpapers-*.pkg.tar.zst
   appsynergy-mirrorlist-*.pkg.tar.zst
+  appsynergy-keyring-*.pkg.tar.zst
+  appsynergy-ca-certificates-*.pkg.tar.zst
   brave-bin-*.pkg.tar.zst
   thorium-browser-bin-*.pkg.tar.zst       (optional)
 
-Legacy fallback: linux-cachyos-igpu{,-headers}-*.pkg.tar.zst
+Retired linux-appsynergy-* and linux-cachyos-igpu-* packages are pruned at build.
 
 Published also at:
   https://github.com/Appsynergy-io/appsynergy-linux/releases/download/repo-x86_64

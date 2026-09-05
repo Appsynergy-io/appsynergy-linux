@@ -1,0 +1,12 @@
+# gitleaks allowlist. The only hits in this tree are PGP key fingerprints:
+# the CachyOS source-signing keys in kernel/upstream/PIN and the AppSynergy
+# packaging key in ci.yml. Fingerprints are public by definition.
+[extend]
+useDefault = true
+
+[allowlist]
+regexTarget = "line"
+regexes = [
+  '''SRCKEY=[0-9A-F]{40}''',
+  '''GPGKEY: 3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1''',
+]
