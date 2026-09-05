@@ -35,4 +35,13 @@ Per-metal `-march=skylake` / `-march=tigerlake` packages, `kernel/configs/*.frag
 3. Re-hash any `SRCSUM` entry whose upstream source moved.
 4. Build, then `build-repo.sh` and `publish-repo.sh`.
 
-Rolling a new kernel onto a running host rewrites `/boot` and needs new bootloader entries; on the TPM-less NUC verify `lsinitcpio` for the SSH-unlock components **before** rebooting.
+## Rolling onto a host
+
+The package name changed from the retired `linux-appsynergy*`, so `/boot` filenames change and the host needs a new bootloader entry. The old entry stays as the fallback until the new kernel has booted once. On the TPM-less NUC every boot is a hand LUKS unlock over initrd SSH, so a bad initramfs costs physical access.
+
+1. `pacman -Si appsynergy-linux` resolves the intended version under `Required DatabaseRequired`; on new hardware `/lib/ld-linux-x86-64.so.2 --help | grep x86-64-v3` says `supported`.
+2. `pacman -Sy appsynergy-linux appsynergy-linux-headers` (rewrites `/boot`, runs `mkinitcpio`; no reboot yet). Do not remove the old kernel package.
+3. Server: `lsinitcpio /boot/initramfs-appsynergy-linux.img | grep -E 'usr/bin/dropbear|root/.ssh/authorized_keys|appsynergy-initrd-sshd.service'` — all three present, or do not reboot.
+4. Add the boot entry with the current `rd.luks.name=`/`root=` options **plus** `lsm=landlock,lockdown,yama,integrity,apparmor,bpf` (`disk::APPARMOR_LSM_CMDLINE`): upstream's `CONFIG_LSM` omits AppArmor, and without it `aa-status` looks healthy while nothing is enforced. Leave the old entry default.
+5. Reboot, unlock, then confirm: `uname -r` ends in `-appsynergy-linux`; `zgrep CONFIG_NETFILTER_XT_MATCH_PHYSDEV /proc/config.gz` is `=m`; `lsmod | grep br_netfilter`; `aa-status` shows profiles enforcing; on k3s hosts `iptables-save -t filter | grep -c KUBE-NWPLCY-` is well above 8, and a pod path a NetworkPolicy denies is actually denied. Decide `masquerade-all` in `k3s-config.yaml` here.
+6. Only after a clean boot: make the new entry default, remove the retired kernel package and its `/boot` images.

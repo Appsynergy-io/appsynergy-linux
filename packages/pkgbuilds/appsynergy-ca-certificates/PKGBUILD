@@ -2,8 +2,8 @@
 # Trust anchors for the AppSynergy PKI (both variants, desktop and server).
 # Certificates are PUBLIC material, exported from vault-k2 pki_int/ca_chain.
 #
-# Issuance policy (docs/DISTRO-AUDIT.md S1): end-entity certs are issued from
-# the Intermediate only; the Root signs nothing operational.
+# Issuance policy: end-entity certs are issued from the Intermediate only; the
+# Root signs nothing operational.
 #
 # The Root is the ONLY anchor. The Intermediate installs to the trust-source
 # top level, never anchors/: update-ca-trust(8) gives plain PEM there neutral

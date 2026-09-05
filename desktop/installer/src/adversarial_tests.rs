@@ -1,5 +1,5 @@
 //! Adversarial tests for appsynergy-install.
-//! Covers dual-NVMe RAID1 layout + INSTALL-PROBLEMS.md failure modes.
+//! Covers dual-NVMe RAID1 layout and the installer failure modes seen in the field.
 
 use crate::config::{self, DiskSource};
 use crate::disk;
@@ -528,7 +528,7 @@ fn server_subvolumes_include_var_and_srv() {
 
 #[test]
 fn branding_overwrite_flag_is_required_contract() {
-    // INSTALL-PROBLEMS #2: installer must use --overwrite for local branding
+    // installer must use --overwrite for local branding
     // (documented contract — string present in main install_branding)
     let src = include_str!("main.rs");
     assert!(
@@ -740,7 +740,7 @@ fn step_failures_are_named() {
 
 #[test]
 fn vconsole_written_before_mkinitcpio_contract() {
-    // INSTALL-PROBLEMS #4
+    // efibootmgr entry
     let src = include_str!("main.rs");
     let vconsole = src.find("etc/vconsole.conf").expect("vconsole");
     let mkinit = src.find("configure_mkinitcpio").expect("mkinit config");
@@ -758,7 +758,7 @@ fn vconsole_written_before_mkinitcpio_contract() {
 
 #[test]
 fn efibootmgr_creates_appsynergy_label() {
-    // INSTALL-PROBLEMS NVRAM
+    // NVRAM
     let src = include_str!("main.rs");
     assert!(src.contains("AppSynergy"));
     assert!(src.contains("efibootmgr"));

@@ -2,7 +2,7 @@
 //!
 //! Variants: **desktop** (Plasma workstation) | **server** (headless tunnels/OVH).
 //! Server dual NVMe: LUKS per disk + btrfs RAID1 (data+metadata).
-//! Fixes from INSTALL-PROBLEMS.md (2026-07-23):
+//! Invariants the adversarial tests lock:
 //! - os-release: write `/usr/lib/os-release` only; `/etc/os-release` is a symlink
 //!   (desktop) or a real file carrying `VARIANT="Server"` (server)
 //! - branding: no pre-seed of package-owned files; `pacman -U --overwrite '*'`
@@ -958,7 +958,7 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
         ),
     }
     // Do NOT pre-copy package-owned files (mirrorlist conf) — that caused
-    // "exists in filesystem" on pacman -U (INSTALL-PROBLEMS #2).
+    // "exists in filesystem" on pacman -U.
     Ok(())
 }
 
@@ -1258,7 +1258,7 @@ fn fstab_crypttab(cfg: &Config) -> Result<()> {
 }
 
 fn locale_hostname(cfg: &Config) -> Result<()> {
-    // Write vconsole.conf *before* any mkinitcpio (INSTALL-PROBLEMS #4)
+    // Write vconsole.conf *before* any mkinitcpio
     fs::write(
         cfg.mnt.join("etc/vconsole.conf"),
         format!("KEYMAP={}\n", cfg.keymap),
@@ -1297,7 +1297,7 @@ locale-gen
     Ok(())
 }
 
-/// INSTALL-PROBLEMS #1: never cp through the /etc/os-release → usr/lib symlink.
+/// Never cp through the /etc/os-release → usr/lib symlink.
 fn apply_os_release(cfg: &Config) -> Result<()> {
     let src_candidates = [
         cfg.mnt.join("etc/appsynergy/os-release"),
@@ -1748,7 +1748,7 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// INSTALL-PROBLEMS: bootctl install may not fix NVRAM after a full wipe.
+/// bootctl install may not fix NVRAM after a full wipe.
 fn fix_efi_nvram(cfg: &Config) -> Result<()> {
     // No EFI variables (legacy BIOS / some VMs): boot files on ESP still work;
     // NVRAM is optional. Do not fail the whole install.
@@ -2258,12 +2258,7 @@ Login shell default: /bin/bash\nVariant: {}\n",
             cfg.variant
         ),
     )?;
-    let mut copy_files = vec![
-        "BAZEL-HOST.txt",
-        "README-INSTALL.txt",
-        "packages-target.txt",
-        "machine.env",
-    ];
+    let mut copy_files = vec!["README-INSTALL.txt", "packages-target.txt", "machine.env"];
     if cfg.variant.is_server() {
         copy_files.extend_from_slice(&[
             "packages-target-server.txt",

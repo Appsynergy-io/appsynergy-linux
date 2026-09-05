@@ -228,7 +228,7 @@ pub fn render_cmdline_luks(
 /// it has to actually be written, hence this constant and its test.
 pub const APPARMOR_LSM_CMDLINE: &str = "lsm=landlock,lockdown,yama,integrity,apparmor,bpf";
 
-/// INSTALL-PROBLEMS #1: os-release must only be written to usr/lib; etc is symlink.
+/// os-release must only be written to usr/lib; etc is a symlink.
 /// Returns (lib_path_rel, etc_symlink_target) for documentation/tests.
 pub fn os_release_write_plan() -> (&'static str, &'static str) {
     ("usr/lib/os-release", "../usr/lib/os-release")
@@ -277,7 +277,7 @@ pub fn is_boot_image_name(name: &str) -> bool {
     name.starts_with("vmlinuz-") || name.starts_with("initramfs-")
 }
 
-/// Pacstrap filter: branding/kernel packages must not be pacstrap'd (INSTALL-PROBLEMS #2).
+/// Pacstrap filter: branding/kernel packages must not be pacstrap'd .
 pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
     matches!(
         name,
@@ -301,7 +301,7 @@ pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
     )
 }
 
-/// Password file: strip one trailing newline (INSTALL-PROBLEMS #3 batch).
+/// Password file: strip one trailing newline .
 pub fn strip_password_newline(mut bytes: Vec<u8>) -> Result<Vec<u8>> {
     if bytes.is_empty() {
         bail!("password empty");
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn os_release_plan_is_lib_not_etc_copy() {
-        // INSTALL-PROBLEMS #1
+        // os-release placement
         let (lib, link) = os_release_write_plan();
         assert_eq!(lib, "usr/lib/os-release");
         assert_eq!(link, "../usr/lib/os-release");
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn pacstrap_skip_branding_and_kernel() {
-        // INSTALL-PROBLEMS #2
+        // pacstrap filter
         assert!(should_skip_pacstrap_pkg("appsynergy-branding"));
         assert!(should_skip_pacstrap_pkg("appsynergy-mirrorlist"));
         assert!(should_skip_pacstrap_pkg("linux-appsynergy-server"));
@@ -479,7 +479,7 @@ mod tests {
 
     #[test]
     fn password_newline_strip() {
-        // INSTALL-PROBLEMS #3
+        // password newline
         assert_eq!(
             strip_password_newline(b"secret\n".to_vec()).unwrap(),
             b"secret"

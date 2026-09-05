@@ -1,9 +1,8 @@
 # Maintainer: AppSynergy
 # Pacman keyring: the GPG key that signs [appsynergy] packages and its database.
 # Fingerprint 3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1, ed25519, expires 2029-08-05.
-# Trust bootstrap: this keyring is anchored by a cosign-signed release manifest
-# issued from the AppSynergy Intermediate CA (see docs/DISTRO-AUDIT.md S2) —
-# blocked on a Vault policy grant for pki_int at the time of writing.
+# Trust bootstrap beyond this package (a cosign-signed manifest under the
+# AppSynergy Intermediate CA) is not in place; the fingerprint above is the anchor.
 pkgname=appsynergy-keyring
 pkgver=1
 pkgrel=3

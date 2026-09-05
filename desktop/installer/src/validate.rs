@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn username_accepts_real_logins() {
-        for good in ["imma", "_svc", "appsynergy-server", &"a".repeat(32)] {
+        for good in ["appsynergy", "_svc", "appsynergy-server", &"a".repeat(32)] {
             assert!(
                 validate_username(good).is_ok(),
                 "username must accept {good:?}"

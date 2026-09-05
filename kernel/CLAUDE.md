@@ -15,7 +15,6 @@ packages/scripts/build-appsynergy-linux.sh    # the only kernel build; stages in
 | `upstream/PIN` | the entire contract — commit, flavor, options, expected uname, required modules |
 | `upstream/cachyos-source-keys.asc` | the two keys upstream signs release tarballs with |
 | `upstream/config-<uname>` | the config that actually shipped, written by the build as evidence |
-| `bench/` | committed benchmark runs |
 
 ## Invariants and gotchas
 
@@ -26,5 +25,5 @@ packages/scripts/build-appsynergy-linux.sh    # the only kernel build; stages in
 - **Upstream leaves one source unchecksummed.** The ThinLTO branch appends `misc/dkms-clang.patch` from a raw `master` URL and never extends `b2sums`, so makepkg aborts on the length mismatch; their CI regenerates sums, which verifies nothing. `SRCSUM` in the pin holds our hash and the build appends it positionally.
 - **Never build in `$SRC_CLONE`.** It is a working copy with local modifications, and a pin asserting only the commit says nothing about what sits on top. The build extracts `git archive <commit>:<flavor>` into a scratch dir.
 - **The rename is not Kconfig.** `prepare()` writes `localversion.20-pkgname` from `pkgbase`. Two guarded substitutions in the build script, each required to match exactly once so upstream drift fails the build instead of renaming the kernel silently.
-- Renaming changes `/boot` filenames, so an existing host swapping to it needs new bootloader entries — a reboot-window action. See `docs/AUDIT-REMEDIATION.md`.
+- Renaming changes `/boot` filenames, so an existing host swapping to it needs new bootloader entries — a reboot-window action. Runbook: `README.md` in this directory, "Rolling onto a host".
 - The lab NUC has **no TPM** — every boot needs a hand LUKS unlock over initrd SSH, so a bad initramfs costs physical access, not a reboot. Verify `lsinitcpio` before rebooting, never after.
