@@ -48,13 +48,11 @@ pub fn read_cpu_model() -> String {
     fs::read_to_string("/proc/cpuinfo")
         .ok()
         .and_then(|t| {
-            t.lines()
-                .find(|l| l.starts_with("model name"))
-                .map(|l| {
-                    l.split_once(':')
-                        .map(|(_, v)| v.trim().to_string())
-                        .unwrap_or_default()
-                })
+            t.lines().find(|l| l.starts_with("model name")).map(|l| {
+                l.split_once(':')
+                    .map(|(_, v)| v.trim().to_string())
+                    .unwrap_or_default()
+            })
         })
         .unwrap_or_default()
 }
@@ -64,13 +62,11 @@ pub fn read_cpu_flags() -> String {
     fs::read_to_string("/proc/cpuinfo")
         .ok()
         .and_then(|t| {
-            t.lines()
-                .find(|l| l.starts_with("flags"))
-                .map(|l| {
-                    l.split_once(':')
-                        .map(|(_, v)| v.trim().to_string())
-                        .unwrap_or_default()
-                })
+            t.lines().find(|l| l.starts_with("flags")).map(|l| {
+                l.split_once(':')
+                    .map(|(_, v)| v.trim().to_string())
+                    .unwrap_or_default()
+            })
         })
         .unwrap_or_default()
 }
@@ -82,7 +78,9 @@ pub fn read_cpu_flags() -> String {
 /// model while masking features the guest does not actually have.
 pub fn supports_x86_64_v3(flags: &str) -> bool {
     // The v3 additions over v2 that the kernel's GENERIC_V3 build actually emits.
-    const NEEDED: &[&str] = &["avx", "avx2", "bmi1", "bmi2", "fma", "f16c", "movbe", "xsave"];
+    const NEEDED: &[&str] = &[
+        "avx", "avx2", "bmi1", "bmi2", "fma", "f16c", "movbe", "xsave",
+    ];
     let have: Vec<&str> = flags.split_whitespace().collect();
     // `abm` is reported as `lzcnt`-implying `abm` on AMD and as `lzcnt` via
     // `abm` on Intel; accept either spelling.
@@ -137,7 +135,10 @@ pub fn family_label(cpu_model: &str) -> String {
     if m.contains("raptor lake") || m.contains("13th gen") || m.contains("14th gen") {
         return "Raptor Lake".into();
     }
-    if m.contains("coffee lake") || m.contains("coffeelake") || m.contains("8th gen") || m.contains("9th gen")
+    if m.contains("coffee lake")
+        || m.contains("coffeelake")
+        || m.contains("8th gen")
+        || m.contains("9th gen")
     {
         return "Coffee Lake".into();
     }
@@ -228,7 +229,10 @@ mod tests {
     fn legacy_names_are_not_selectable() {
         let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E3-1270 v6", SKYLAKE_FLAGS);
         for legacy in LEGACY_KERNEL_PKGS {
-            assert!(!s.pkg_prefixes.contains(legacy), "{legacy} still selectable");
+            assert!(
+                !s.pkg_prefixes.contains(legacy),
+                "{legacy} still selectable"
+            );
         }
     }
 }

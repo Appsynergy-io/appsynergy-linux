@@ -10,7 +10,11 @@ use std::process::Command;
 
 /// True when we should run the wizard (not `--yes`, not NO_GUIDE, TTY available).
 pub fn should_guide(cli: &Cli) -> bool {
-    should_guide_with(cli.yes, std::env::var_os("APPSYNERGY_NO_GUIDE").is_some(), atty_stdin())
+    should_guide_with(
+        cli.yes,
+        std::env::var_os("APPSYNERGY_NO_GUIDE").is_some(),
+        atty_stdin(),
+    )
 }
 
 /// Pure: guide when not batch, not forced off, and interactive.
@@ -49,19 +53,6 @@ pub enum DiskChoice {
     Single { disk: PathBuf },
 }
 
-pub fn parse_raid1_choice(use_both: &str, single_path: &str) -> DiskChoice {
-    if parse_yes_no(use_both, true) {
-        DiskChoice::Raid1 {
-            disks: "/dev/nvme0n1,/dev/nvme1n1".into(),
-        }
-    } else {
-        let p = single_path.trim();
-        DiskChoice::Single {
-            disk: PathBuf::from(if p.is_empty() { "/dev/nvme0n1" } else { p }),
-        }
-    }
-}
-
 /// Detect signs of an existing OS/install on planned disks (for nuke prompt).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExistingInstallHint {
@@ -82,7 +73,9 @@ pub fn parse_lsblk_for_existing(lsblk_text: &str, disk_basenames: &[&str]) -> Ex
     let mut h = ExistingInstallHint::default();
     for line in lsblk_text.lines() {
         let lower = line.to_ascii_lowercase();
-        let on_disk = disk_basenames.iter().any(|b| lower.contains(&b.to_ascii_lowercase()));
+        let on_disk = disk_basenames
+            .iter()
+            .any(|b| lower.contains(&b.to_ascii_lowercase()));
         if !on_disk {
             continue;
         }
@@ -117,7 +110,11 @@ pub fn probe_existing_install(disks: &[PathBuf]) -> ExistingInstallHint {
     let mut combined = ExistingInstallHint::default();
     let basenames: Vec<String> = disks
         .iter()
-        .filter_map(|d| d.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()))
+        .filter_map(|d| {
+            d.file_name()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
         .collect();
     let basenames_ref: Vec<&str> = basenames.iter().map(|s| s.as_str()).collect();
 
@@ -330,9 +327,13 @@ pub fn run(cli: &mut Cli) -> Result<()> {
             println!("SSH: using baked operator pubkey ({})", baked.display());
             cli.ssh_pubkey = Some(baked.to_path_buf());
         } else if server {
-            let found = ["/root/.ssh/authorized_keys", "/root/id_rsa.pub", "/root/id_ed25519.pub"]
-                .into_iter()
-                .find(|p| Path::new(p).is_file());
+            let found = [
+                "/root/.ssh/authorized_keys",
+                "/root/id_rsa.pub",
+                "/root/id_ed25519.pub",
+            ]
+            .into_iter()
+            .find(|p| Path::new(p).is_file());
             println!();
             if let Some(p) = found {
                 println!("SSH public key found: {p}");
@@ -518,28 +519,6 @@ mod tests {
         assert!(parse_yes_no("Y", false));
         assert!(!parse_yes_no("n", true));
         assert!(parse_yes_no("yes", true));
-    }
-
-    #[test]
-    fn raid1_choice_both() {
-        let c = parse_raid1_choice("Y", "/dev/nvme0n1");
-        assert_eq!(
-            c,
-            DiskChoice::Raid1 {
-                disks: "/dev/nvme0n1,/dev/nvme1n1".into()
-            }
-        );
-    }
-
-    #[test]
-    fn raid1_choice_single() {
-        let c = parse_raid1_choice("n", "/dev/nvme1n1");
-        assert_eq!(
-            c,
-            DiskChoice::Single {
-                disk: PathBuf::from("/dev/nvme1n1")
-            }
-        );
     }
 
     #[test]
