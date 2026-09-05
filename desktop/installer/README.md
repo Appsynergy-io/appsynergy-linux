@@ -45,4 +45,6 @@ sudo appsynergy-install --variant desktop --dev --yes --disk /dev/nvme0n1 \
 
 A failed run on the same live boot resumes from `/run/appsynergy-install/journal`. `--fresh` starts over.
 
+Layout smoke (root, not CI): `sudo desktop/scripts/smoke-install.sh`
+
 Docs: `kernel/docs/SERVER-OS.md`. Tests: `cargo test`.
