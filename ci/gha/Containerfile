@@ -3,7 +3,9 @@
 # each run. Pin this image later as ghcr.io/appsynergy-io/appsynergy-linux-ci:<tag>.
 #
 # Jobs must run as uid 1000 `build`: makepkg refuses root.
-FROM archlinux:latest
+# Digest is the one .github/workflows/ci.yml runs on; Dependabot (docker, /ci/gha)
+# bumps it here and check.sh stage ci-image fails until ci.yml matches.
+FROM archlinux:base-devel@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6
 
 RUN pacman -Syu --noconfirm --needed \
       base-devel git shellcheck namcap rustup nodejs curl sudo \

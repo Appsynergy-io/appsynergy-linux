@@ -14,3 +14,7 @@ updates:
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /ci/gha
+    schedule:
+      interval: monthly

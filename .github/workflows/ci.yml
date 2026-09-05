@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 30
     # Arch userland in a container: makepkg refuses uid 0, so the gate runs as `build`.
     container:
-      image: archlinux:latest
+      image: archlinux:base-devel@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6 # digest mirrors ci/gha/Containerfile; check.sh stage ci-image
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,6 +114,21 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
 
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
   publish:
     name: publish
     # Build any/ packages, pull the last sandbox-uploaded kernel from the rolling
@@ -125,11 +140,14 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+    environment:
+      name: repo-x86_64
+      url: https://github.com/Appsynergy-io/appsynergy-linux/releases/tag/repo-x86_64
     concurrency:
       group: publish-repo
       cancel-in-progress: false
     container:
-      image: archlinux:latest
+      image: archlinux:base-devel@sha256:84cd9ef000b3cff245ec028e87965b84724f4bf1cc63fc2741ba927b88515ed6 # digest mirrors ci/gha/Containerfile; check.sh stage ci-image
     steps:
       - name: cache week
         id: week
@@ -215,3 +233,17 @@ jobs:
           as_build ./packages/scripts/pull-kernel.sh
           as_build ./packages/scripts/build-repo.sh
           as_build ./packages/scripts/publish-repo.sh
+      - name: tag the publish
+        # publish-repo.sh leaves the snapshot stamp in staging when it uploaded
+        # something. Tag published/<stamp> on this commit so the dated db on the
+        # Release names the source that produced it. A GITHUB_TOKEN tag push
+        # triggers nothing.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          f=packages/repo/x86_64/.published-stamp
+          [[ -f "$f" ]] || { echo "nothing published — no tag"; exit 0; }
+          stamp=$(tr -d '[:space:]' < "$f")
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/published/$stamp" -f sha="$GITHUB_SHA" >/dev/null
+          echo "tagged published/$stamp"
