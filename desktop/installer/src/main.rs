@@ -102,7 +102,10 @@ fn try_main() -> Result<()> {
     // packages, so a payload/ISO built without them can only end in an unusable or
     // untrusted repo. Fail here, before partitioning — never mid-install on a wiped disk.
     for (pkg, pattern) in [
-        ("appsynergy-keyring", "appsynergy-keyring-[0-9]*.pkg.tar.zst"),
+        (
+            "appsynergy-keyring",
+            "appsynergy-keyring-[0-9]*.pkg.tar.zst",
+        ),
         (
             "appsynergy-mirrorlist",
             "appsynergy-mirrorlist-[0-9]*.pkg.tar.zst",
@@ -176,11 +179,23 @@ fn try_main() -> Result<()> {
         println!("  2. At unlock prompt: type VOLUME passphrase");
         println!("     (no TPM seen, or --no-tpm; enroll later: appsynergy-tpm-enroll)");
     }
-    println!("  3. Login as {}{}", cfg.user, if cfg.variant.is_server() { " (ssh root/key once configured)" } else { "" });
+    println!(
+        "  3. Login as {}{}",
+        cfg.user,
+        if cfg.variant.is_server() {
+            " (ssh root/key once configured)"
+        } else {
+            ""
+        }
+    );
     if cfg.variant.is_server() {
         println!("  4. Edit /etc/systemd/network/*.network if DHCP is wrong");
-        println!("  5. Unlock order: TPM → ssh root@ip (initrd) → console — /etc/appsynergy/UNLOCK.txt");
-        println!("  6. wg + nft: /etc/nftables.conf; containers: k3s (no docker/containerd/nerdctl)");
+        println!(
+            "  5. Unlock order: TPM → ssh root@ip (initrd) → console — /etc/appsynergy/UNLOCK.txt"
+        );
+        println!(
+            "  6. wg + nft: /etc/nftables.conf; containers: k3s (no docker/containerd/nerdctl)"
+        );
     }
     println!("============================================================");
     let closes: Vec<String> = cfg
@@ -230,7 +245,10 @@ fn banner(cfg: &Config) {
     }
     println!("  disks from: {}", cfg.disk_source.label());
     if cfg.layout.is_raid1() {
-        println!("  btrfs:      RAID1 data+metadata  label={}", cfg.layout.label);
+        println!(
+            "  btrfs:      RAID1 data+metadata  label={}",
+            cfg.layout.label
+        );
     } else {
         println!("  btrfs:      single  label={}", cfg.layout.label);
     }
@@ -607,7 +625,12 @@ fn sync_esp_mirror(cfg: &Config) -> Result<()> {
         cmd::run(
             "esp-mirror",
             "rsync",
-            &["-aH", "--delete", &format!("{}/", src.display()), &format!("{mnt2}/")],
+            &[
+                "-aH",
+                "--delete",
+                &format!("{}/", src.display()),
+                &format!("{mnt2}/"),
+            ],
         )?;
     } else {
         cmd::run(
@@ -686,7 +709,10 @@ fn pacstrap_packages(cfg: &Config) -> Result<()> {
     let mut cmd_args = vec!["-K".to_string(), mnt];
     cmd_args.extend(pkgs);
     let str_args: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-    println!("    pacstrap ({} packages)", str_args.len().saturating_sub(2));
+    println!(
+        "    pacstrap ({} packages)",
+        str_args.len().saturating_sub(2)
+    );
     cmd::run("pacstrap", "pacstrap", &str_args)?;
     let _ = cmd::run("pacstrap", "appsynergy-sanitize-mirrors", &[]);
     if Path::new("/etc/pacman.d/mirrorlist").is_file() {
@@ -731,10 +757,7 @@ fn install_local_kernel(cfg: &Config) -> Result<()> {
         fs::copy(pkg, dest.join(pkg.file_name().unwrap()))?;
         fs::copy(hdr, dest.join(hdr.file_name().unwrap()))?;
     }
-    cmd::arch_chroot(
-        &cfg.mnt,
-        "pacman -U --noconfirm /root/pkgs/*.pkg.tar.zst",
-    )?;
+    cmd::arch_chroot(&cfg.mnt, "pacman -U --noconfirm /root/pkgs/*.pkg.tar.zst")?;
     Ok(())
 }
 
@@ -754,9 +777,7 @@ fn find_kernel_pkg_pairs(
         let mut hdrs = list_glob(dir, &format!("{prefix}-headers-*.pkg.tar.zst"));
         pkgs.retain(|p| {
             let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            !n.contains("-dbg-")
-                && !n.contains("-headers-")
-                && match_kernel_pkg_prefix(prefix, n)
+            !n.contains("-dbg-") && !n.contains("-headers-") && match_kernel_pkg_prefix(prefix, n)
         });
         hdrs.retain(|p| {
             let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -780,7 +801,11 @@ fn find_kernel_pkg_pairs(
              cpu: {} ({})\n\
              {}\n\
              Re-run with --kernel repo to install stock Arch linux instead.",
-            if sel.cpu_model.is_empty() { "unknown" } else { sel.cpu_model.as_str() },
+            if sel.cpu_model.is_empty() {
+                "unknown"
+            } else {
+                sel.cpu_model.as_str()
+            },
             sel.family_label,
             sel.reason
         );
@@ -796,7 +821,10 @@ fn find_kernel_pkg_pairs(
     // rename, and never chosen over the current package.
     for legacy in detect::LEGACY_KERNEL_PKGS {
         if let Some(p) = try_pair(legacy) {
-            eprintln!("WARN: {} missing; using retired package {legacy}", detect::KERNEL_PKG);
+            eprintln!(
+                "WARN: {} missing; using retired package {legacy}",
+                detect::KERNEL_PKG
+            );
             return Ok(vec![p]);
         }
     }
@@ -806,7 +834,11 @@ fn find_kernel_pkg_pairs(
          Or re-run with --kernel repo for stock Arch linux.",
         detect::KERNEL_PKG,
         dir.display(),
-        if variant.is_server() { "server" } else { "desktop" },
+        if variant.is_server() {
+            "server"
+        } else {
+            "desktop"
+        },
         detect::KERNEL_PKG,
         detect::KERNEL_PKG
     )
@@ -853,7 +885,7 @@ fn list_glob(dir: &Path, pattern: &str) -> Vec<PathBuf> {
 }
 
 fn glob_simple(pat: &str, name: &str) -> bool {
-    // only supports a single * 
+    // only supports a single *
     if let Some((pre, post)) = pat.split_once('*') {
         name.starts_with(pre) && name.ends_with(post) && name.len() >= pre.len() + post.len()
     } else {
@@ -960,7 +992,10 @@ fn install_branding(cfg: &Config) -> Result<()> {
     // "appsynergy-branding-desktop-*", which would drag Plasma assets onto a server.
     let mut local: Vec<PathBuf> =
         list_glob(&cfg.local_pkgdir, "appsynergy-branding-[0-9]*.pkg.tar.zst");
-    local.extend(list_glob(&cfg.local_pkgdir, "appsynergy-mirrorlist-*.pkg.tar.zst"));
+    local.extend(list_glob(
+        &cfg.local_pkgdir,
+        "appsynergy-mirrorlist-*.pkg.tar.zst",
+    ));
     local.extend(list_glob(
         &cfg.local_pkgdir,
         "appsynergy-ca-certificates-*.pkg.tar.zst",
@@ -1017,7 +1052,10 @@ fn install_browsers(cfg: &Config) -> Result<()> {
         return Ok(());
     }
     let mut pkgs = list_glob(&cfg.local_pkgdir, "brave-bin-*.pkg.tar.zst");
-    pkgs.extend(list_glob(&cfg.local_pkgdir, "thorium-browser-bin-*.pkg.tar.zst"));
+    pkgs.extend(list_glob(
+        &cfg.local_pkgdir,
+        "thorium-browser-bin-*.pkg.tar.zst",
+    ));
     if pkgs.is_empty() {
         eprintln!("    WARN: no brave-bin / thorium pkgs — install after boot");
         return Ok(());
@@ -1112,7 +1150,10 @@ WantedBy=multi-user.target
     } else {
         fs::write(&env_dst, b"")?;
     }
-    cmd::arch_chroot(&cfg.mnt, "chmod 400 /etc/systemd/system/k3s.service.env || true")?;
+    cmd::arch_chroot(
+        &cfg.mnt,
+        "chmod 400 /etc/systemd/system/k3s.service.env || true",
+    )?;
 
     // Default k3s config (traefik/servicelb off); operator can replace after boot.
     let cfg_dst = cfg.mnt.join("etc/rancher/k3s/config.yaml");
@@ -1137,7 +1178,9 @@ WantedBy=multi-user.target
     }
     println!(
         "    k3s → /usr/local/bin/k3s + unit + /etc/rancher/k3s/config.yaml ({})",
-        fs::read_to_string(src.join("VERSION")).unwrap_or_else(|_| "unknown".into()).trim()
+        fs::read_to_string(src.join("VERSION"))
+            .unwrap_or_else(|_| "unknown".into())
+            .trim()
     );
     Ok(())
 }
@@ -1150,7 +1193,7 @@ fn fstab_crypttab(cfg: &Config) -> Result<()> {
         .create(true)
         .append(true)
         .open(&fstab)
-        .and_then(|mut f| write!(f, "{out}\n"))
+        .and_then(|mut f| writeln!(f, "{out}"))
         .context("write fstab")?;
 
     let mut crypt_entries = Vec::new();
@@ -1268,7 +1311,8 @@ fn apply_os_release(cfg: &Config) -> Result<()> {
 
     if let Some(src) = src {
         // Always write to real file path, never through /etc symlink
-        fs::copy(&src, &lib).with_context(|| format!("copy {} -> {}", src.display(), lib.display()))?;
+        fs::copy(&src, &lib)
+            .with_context(|| format!("copy {} -> {}", src.display(), lib.display()))?;
         if cfg.variant.is_server() {
             // Rebrand names and force VARIANT for server without a separate package.
             if let Ok(t) = fs::read_to_string(&lib) {
@@ -1418,8 +1462,6 @@ fn configure_mkinitcpio(cfg: &Config) -> Result<()> {
         // real systemd units instead, and must stay AFTER `systemd` in this list
         // so add_systemd_unit() is defined when it runs.
         "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block appsynergy-ssh-unlock sd-encrypt filesystems fsck)"
-    } else if cfg.variant.is_server() {
-        "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)"
     } else {
         "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)"
     };
@@ -1542,11 +1584,7 @@ chmod 440 /etc/sudoers.d/wheel
         let mut body = root_line;
         body.push_str(&user_line);
         fs::write(&pwfile, body.as_bytes())?;
-        let _ = cmd::run(
-            "users",
-            "chmod",
-            &["600", &pwfile.to_string_lossy()],
-        );
+        let _ = cmd::run("users", "chmod", &["600", &pwfile.to_string_lossy()]);
         cmd::arch_chroot(
             &cfg.mnt,
             "chpasswd < /root/.appsynergy-chpasswd && rm -f /root/.appsynergy-chpasswd",
@@ -1682,10 +1720,7 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
             entry.push_str("initrd  /amd-ucode.img\n");
         }
         entry.push_str(&format!("initrd  /{initramfs}\noptions {options}\n"));
-        fs::write(
-            cfg.mnt.join("boot/loader/entries").join(entry_name),
-            entry,
-        )?;
+        fs::write(cfg.mnt.join("boot/loader/entries").join(entry_name), entry)?;
         wrote_any = true;
         println!("    boot entry: {entry_name} → {vmlinuz}");
     }
@@ -1748,11 +1783,7 @@ fn fix_efi_nvram(cfg: &Config) -> Result<()> {
                 if let Some(boot) = line.split_whitespace().next() {
                     let num = boot.trim_start_matches("Boot").trim_end_matches('*');
                     if num.chars().all(|c| c.is_ascii_hexdigit()) {
-                        let _ = cmd::run(
-                            "efibootmgr",
-                            "efibootmgr",
-                            &["-b", num, "-B"],
-                        );
+                        let _ = cmd::run("efibootmgr", "efibootmgr", &["-b", num, "-B"]);
                     }
                 }
             }
@@ -1775,11 +1806,7 @@ fn fix_efi_nvram(cfg: &Config) -> Result<()> {
                     let num = boot.trim_start_matches("Boot").trim_end_matches('*');
                     if num.chars().all(|c| c.is_ascii_hexdigit()) {
                         println!("    removing stale NVRAM entry {boot}");
-                        let _ = cmd::run(
-                            "efibootmgr",
-                            "efibootmgr",
-                            &["-b", num, "-B"],
-                        );
+                        let _ = cmd::run("efibootmgr", "efibootmgr", &["-b", num, "-B"]);
                     }
                 }
             }
@@ -1859,7 +1886,11 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
     let keyfile_path = PathBuf::from("/tmp/appsynergy-tpm-unlock.key");
     let key_owned: Option<PathBuf> = if let Some(ref pw) = cfg.password {
         fs::write(&keyfile_path, pw).context("write temp unlock keyfile")?;
-        let _ = cmd::run("tpm-enroll", "chmod", &["600", &keyfile_path.to_string_lossy()]);
+        let _ = cmd::run(
+            "tpm-enroll",
+            "chmod",
+            &["600", &keyfile_path.to_string_lossy()],
+        );
         Some(keyfile_path.clone())
     } else {
         None
@@ -1886,11 +1917,7 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
             cmd::run(
                 "tpm-enroll",
                 "systemd-cryptenroll",
-                &[
-                    "--tpm2-device=auto",
-                    &format!("--tpm2-pcrs={pcrs}"),
-                    &dev,
-                ],
+                &["--tpm2-device=auto", &format!("--tpm2-pcrs={pcrs}"), &dev],
             )
         };
         if let Err(e) = r {
@@ -2125,14 +2152,13 @@ fn apply_server_overlay(cfg: &Config) -> Result<()> {
 
     // networkd initramfs unit for mkinitcpio-netconf systemd branch
     let net_init = Path::new("/etc/appsynergy/server/20-wired.network.initramfs");
-    let net_dst = cfg.mnt.join("etc/systemd/network/20-wired.network.initramfs");
+    let net_dst = cfg
+        .mnt
+        .join("etc/systemd/network/20-wired.network.initramfs");
     if net_init.is_file() {
         fs::copy(net_init, &net_dst)?;
     } else {
-        fs::write(
-            &net_dst,
-            "[Match]\nName=en* eth*\n\n[Network]\nDHCP=yes\n",
-        )?;
+        fs::write(&net_dst, "[Match]\nName=en* eth*\n\n[Network]\nDHCP=yes\n")?;
     }
 
     // dropbear initrd unlock key (root + user authorized_keys already in install_ssh_keys).
@@ -2151,14 +2177,15 @@ fn apply_server_overlay(cfg: &Config) -> Result<()> {
     let _ = cmd::run(
         "server-overlay",
         "chmod",
-        &["600", &cfg.mnt.join("etc/dropbear/root_key").to_string_lossy()],
+        &[
+            "600",
+            &cfg.mnt.join("etc/dropbear/root_key").to_string_lossy(),
+        ],
     );
     println!("    dropbear root_key armed for initrd SSH unlock");
 
     // Order: modules-load before systemd-sysctl so conntrack keys exist
-    let drop = cfg
-        .mnt
-        .join("etc/systemd/system/systemd-sysctl.service.d");
+    let drop = cfg.mnt.join("etc/systemd/system/systemd-sysctl.service.d");
     fs::create_dir_all(&drop)?;
     fs::write(
         drop.join("10-after-modules-load.conf"),
@@ -2166,13 +2193,13 @@ fn apply_server_overlay(cfg: &Config) -> Result<()> {
     )?;
 
     // Mask stock dropbear multi-user unit if present — only initrd uses dropbear.
-    cmd::arch_chroot_ok(&cfg.mnt, "systemctl mask dropbear.service 2>/dev/null || true");
+    cmd::arch_chroot_ok(
+        &cfg.mnt,
+        "systemctl mask dropbear.service 2>/dev/null || true",
+    );
 
     fs::write(cfg.mnt.join("etc/appsynergy/VARIANT"), "server\n")?;
-    fs::write(
-        cfg.mnt.join("etc/appsynergy/UNLOCK.txt"),
-        unlock_doc(cfg),
-    )?;
+    fs::write(cfg.mnt.join("etc/appsynergy/UNLOCK.txt"), unlock_doc(cfg))?;
     println!("    server overlay: sysctl, nft, sshd, watchdog, journald, SSH-unlock hooks");
     Ok(())
 }
@@ -2339,11 +2366,7 @@ Never remove the passphrase slot.\n",
             let dest = cfg.mnt.join("usr/local/bin").join(bin);
             fs::create_dir_all(dest.parent().unwrap())?;
             fs::copy(&src, &dest)?;
-            let _ = cmd::run(
-                "finalize",
-                "chmod",
-                &["755", &dest.to_string_lossy()],
-            );
+            let _ = cmd::run("finalize", "chmod", &["755", &dest.to_string_lossy()]);
         }
     }
     // Plasma skel (desktop only)

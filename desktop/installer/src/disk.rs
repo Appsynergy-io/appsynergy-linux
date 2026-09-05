@@ -39,6 +39,7 @@ impl DiskLayout {
         self.raid1
     }
 
+    #[cfg(test)]
     pub fn mapper_paths(&self) -> Vec<PathBuf> {
         self.members.iter().map(|m| m.mapper_path()).collect()
     }
@@ -58,7 +59,10 @@ pub fn partition_paths(disk: &Path) -> (PathBuf, PathBuf) {
             PathBuf::from(format!("{s}p2")),
         )
     } else {
-        (PathBuf::from(format!("{s}1")), PathBuf::from(format!("{s}2")))
+        (
+            PathBuf::from(format!("{s}1")),
+            PathBuf::from(format!("{s}2")),
+        )
     }
 }
 
@@ -99,7 +103,9 @@ pub fn is_partition_name(name: &str) -> bool {
         return base.ends_with('p')
             && base[..base.len() - 1].ends_with(|c: char| c.is_ascii_digit());
     }
-    ["sd", "vd", "hd", "xvd"].iter().any(|p| base.starts_with(p))
+    ["sd", "vd", "hd", "xvd"]
+        .iter()
+        .any(|p| base.starts_with(p))
         && base.chars().all(|c| c.is_ascii_alphabetic())
 }
 
@@ -192,14 +198,16 @@ pub fn render_crypttab(entries: &[(String, String, bool)]) -> String {
 /// For RAID1: multiple rd.luks.name= and root by btrfs UUID when provided.
 pub fn render_cmdline_luks(
     entries: &[(String, String)], // (cryptname, luks_uuid)
-    root_spec: &str,             // UUID=… or /dev/mapper/crypt0
+    root_spec: &str,              // UUID=… or /dev/mapper/crypt0
     extra: &str,
 ) -> String {
     let mut opts = String::new();
     for (name, uuid) in entries {
         opts.push_str(&format!("rd.luks.name={uuid}={name} "));
     }
-    opts.push_str(&format!("root={root_spec} rootflags=subvol=@ rw zswap.enabled=0"));
+    opts.push_str(&format!(
+        "root={root_spec} rootflags=subvol=@ rw zswap.enabled=0"
+    ));
     opts.push(' ');
     opts.push_str(APPARMOR_LSM_CMDLINE);
     if !extra.is_empty() {
@@ -446,9 +454,15 @@ mod tests {
         // The rename moves /boot filenames; the prefix test must still cover them.
         assert!(is_boot_image_name("vmlinuz-appsynergy-linux"));
         assert!(is_boot_image_name("initramfs-appsynergy-linux.img"));
-        assert!(is_boot_image_name("initramfs-appsynergy-linux-fallback.img"));
-        assert!(is_boot_image_name("vmlinuz-linux-appsynergy-server-skylake"));
-        assert!(is_boot_image_name("initramfs-linux-appsynergy-server-skylake.img"));
+        assert!(is_boot_image_name(
+            "initramfs-appsynergy-linux-fallback.img"
+        ));
+        assert!(is_boot_image_name(
+            "vmlinuz-linux-appsynergy-server-skylake"
+        ));
+        assert!(is_boot_image_name(
+            "initramfs-linux-appsynergy-server-skylake.img"
+        ));
         assert!(!is_boot_image_name("random-seed"));
         assert!(!is_boot_image_name("loader"));
         assert!(!is_boot_image_name("intel-ucode.img"));
@@ -466,16 +480,28 @@ mod tests {
     #[test]
     fn password_newline_strip() {
         // INSTALL-PROBLEMS #3
-        assert_eq!(strip_password_newline(b"secret\n".to_vec()).unwrap(), b"secret");
-        assert_eq!(strip_password_newline(b"secret\r\n".to_vec()).unwrap(), b"secret");
-        assert_eq!(strip_password_newline(b"secret".to_vec()).unwrap(), b"secret");
+        assert_eq!(
+            strip_password_newline(b"secret\n".to_vec()).unwrap(),
+            b"secret"
+        );
+        assert_eq!(
+            strip_password_newline(b"secret\r\n".to_vec()).unwrap(),
+            b"secret"
+        );
+        assert_eq!(
+            strip_password_newline(b"secret".to_vec()).unwrap(),
+            b"secret"
+        );
         assert!(strip_password_newline(b"\n".to_vec()).is_err());
         assert!(strip_password_newline(vec![]).is_err());
     }
 
     #[test]
     fn btrfs_raid1_mkfs_flags() {
-        assert_eq!(btrfs_mkfs_profile_args(true), vec!["-d", "raid1", "-m", "raid1"]);
+        assert_eq!(
+            btrfs_mkfs_profile_args(true),
+            vec!["-d", "raid1", "-m", "raid1"]
+        );
         assert!(btrfs_mkfs_profile_args(false).is_empty());
     }
 

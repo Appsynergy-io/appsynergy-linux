@@ -28,10 +28,20 @@ pub fn run(step: &str, program: impl AsRef<OsStr>, args: &[&str]) -> Result<()> 
 }
 
 /// Like [`run`] but feed `stdin` bytes (e.g. password / keyfile contents).
-pub fn run_stdin(step: &str, program: impl AsRef<OsStr>, args: &[&str], stdin: &[u8]) -> Result<()> {
+pub fn run_stdin(
+    step: &str,
+    program: impl AsRef<OsStr>,
+    args: &[&str],
+    stdin: &[u8],
+) -> Result<()> {
     use std::io::Write;
     let program = program.as_ref();
-    eprintln!("    $ {} {}  <stdin:{}B>", program.to_string_lossy(), args.join(" "), stdin.len());
+    eprintln!(
+        "    $ {} {}  <stdin:{}B>",
+        program.to_string_lossy(),
+        args.join(" "),
+        stdin.len()
+    );
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())

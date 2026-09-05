@@ -31,8 +31,21 @@ shell_lint() {
 }
 stage shellcheck shell_lint
 
-# 2. Installer tests
-stage cargo-test bash -c "cd '$ROOT/desktop/installer' && cargo test --locked"
+# 2. Installer: formatted, lint-clean, tested, no known-vulnerable or
+#    unlicensed dependency. deny.toml holds the policy.
+rust_gate() {
+  cd "$ROOT/desktop/installer" &&
+  cargo fmt --check &&
+  cargo clippy --locked --all-targets -q -- -D warnings &&
+  cargo test --locked -q &&
+  cargo audit -q &&
+  cargo deny -L error check
+}
+stage cargo rust_gate
+
+# 2b. Secret scan over the whole history. .gitleaks.toml allowlists the PGP
+#     fingerprints, which are public by definition.
+stage gitleaks gitleaks git --no-banner --exit-code 1 "$ROOT"
 
 # 3. Payload tarballs regenerate deterministically AND match the sums the
 #    PKGBUILDs pin — drift means assets changed without updating the PKGBUILD.
@@ -220,5 +233,16 @@ workflows() {
   actionlint "${wf[@]}" && zizmor --no-progress --config "$ROOT/.github/zizmor.yml" "$ROOT/.github/workflows"
 }
 stage workflows workflows
+
+# 12. Dependabot covers every ecosystem present. A workflow that is not in the
+#     list drifts silently; a manifest that is not in the list never gets a bump.
+dependabot_cover() {
+  local f="$ROOT/.github/dependabot.yml" eco rc=0
+  for eco in cargo github-actions; do
+    grep -qE "^\s*-\s*package-ecosystem:\s*$eco\s*$" "$f" || { echo "dependabot.yml lacks $eco"; rc=1; }
+  done
+  return $rc
+}
+stage dependabot dependabot_cover
 
 exit $fail

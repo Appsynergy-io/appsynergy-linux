@@ -113,8 +113,9 @@ pub fn validate_locale(value: &str) -> Result<()> {
         && codeset.is_none_or(|c| {
             (1..=16).contains(&c.len()) && c.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         })
-        && modifier
-            .is_none_or(|m| (1..=16).contains(&m.len()) && m.chars().all(|c| c.is_ascii_alphanumeric()));
+        && modifier.is_none_or(|m| {
+            (1..=16).contains(&m.len()) && m.chars().all(|c| c.is_ascii_alphanumeric())
+        });
     if !ok {
         return Err(reject("locale", value, SHAPE));
     }
@@ -177,10 +178,7 @@ mod tests {
 
     fn assert_all_rejected(f: fn(&str) -> Result<()>, field: &str) {
         for bad in rejected() {
-            assert!(
-                f(&bad).is_err(),
-                "{field} must reject {bad:?}"
-            );
+            assert!(f(&bad).is_err(), "{field} must reject {bad:?}");
         }
     }
 
@@ -188,22 +186,34 @@ mod tests {
     fn username_rejects_corpus() {
         assert_all_rejected(validate_username, "username");
         assert!(validate_username("root").is_err());
-        assert!(validate_username("Imma").is_err(), "uppercase is not a valid login");
-        assert!(validate_username("1abc").is_err(), "must not start with a digit");
+        assert!(
+            validate_username("Imma").is_err(),
+            "uppercase is not a valid login"
+        );
+        assert!(
+            validate_username("1abc").is_err(),
+            "must not start with a digit"
+        );
         assert!(validate_username(&"a".repeat(33)).is_err());
     }
 
     #[test]
     fn username_accepts_real_logins() {
         for good in ["imma", "_svc", "appsynergy-server", &"a".repeat(32)] {
-            assert!(validate_username(good).is_ok(), "username must accept {good:?}");
+            assert!(
+                validate_username(good).is_ok(),
+                "username must accept {good:?}"
+            );
         }
     }
 
     #[test]
     fn hostname_rejects_corpus() {
         assert_all_rejected(validate_hostname, "hostname");
-        assert!(validate_hostname("nuc-").is_err(), "must not end with a hyphen");
+        assert!(
+            validate_hostname("nuc-").is_err(),
+            "must not end with a hyphen"
+        );
         assert!(validate_hostname("_nuc").is_err());
         assert!(validate_hostname("NUC").is_err());
         assert!(validate_hostname(&"a".repeat(64)).is_err());
@@ -211,8 +221,17 @@ mod tests {
 
     #[test]
     fn hostname_accepts_real_labels() {
-        for good in ["appsynergy-server", "nuc", "appsynergy", "n1", &"a".repeat(63)] {
-            assert!(validate_hostname(good).is_ok(), "hostname must accept {good:?}");
+        for good in [
+            "appsynergy-server",
+            "nuc",
+            "appsynergy",
+            "n1",
+            &"a".repeat(63),
+        ] {
+            assert!(
+                validate_hostname(good).is_ok(),
+                "hostname must accept {good:?}"
+            );
         }
     }
 
@@ -221,8 +240,14 @@ mod tests {
         assert_all_rejected(validate_timezone, "timezone");
         assert!(validate_timezone("/UTC").is_err(), "no leading slash");
         assert!(validate_timezone("UTC/").is_err(), "no trailing slash");
-        assert!(validate_timezone("America//Sao_Paulo").is_err(), "no empty component");
-        assert!(validate_timezone("a/b/c/d").is_err(), "at most 3 components");
+        assert!(
+            validate_timezone("America//Sao_Paulo").is_err(),
+            "no empty component"
+        );
+        assert!(
+            validate_timezone("a/b/c/d").is_err(),
+            "at most 3 components"
+        );
         assert!(validate_timezone("../zoneinfo/UTC").is_err());
     }
 
@@ -235,16 +260,28 @@ mod tests {
             "Europe/London",
             "America/Argentina/Buenos_Aires",
         ] {
-            assert!(validate_timezone(good).is_ok(), "timezone must accept {good:?}");
+            assert!(
+                validate_timezone(good).is_ok(),
+                "timezone must accept {good:?}"
+            );
         }
     }
 
     #[test]
     fn locale_rejects_corpus() {
         assert_all_rejected(validate_locale, "locale");
-        assert!(validate_locale("en_us.UTF-8").is_err(), "territory is uppercase");
-        assert!(validate_locale("e_US.UTF-8").is_err(), "language is 2..=3 letters");
-        assert!(validate_locale("en_USA.UTF-8").is_err(), "territory is 2 letters");
+        assert!(
+            validate_locale("en_us.UTF-8").is_err(),
+            "territory is uppercase"
+        );
+        assert!(
+            validate_locale("e_US.UTF-8").is_err(),
+            "language is 2..=3 letters"
+        );
+        assert!(
+            validate_locale("en_USA.UTF-8").is_err(),
+            "territory is 2 letters"
+        );
         assert!(validate_locale("en_US.UTF-8@").is_err(), "empty modifier");
         assert!(validate_locale(&format!("en_US.{}", "a".repeat(30))).is_err());
     }
@@ -284,7 +321,10 @@ mod tests {
         // Shape is what the tests own; existence depends on the host's tzdata,
         // hence the split into two calls.
         let bogus = "Nowhere/Nothing";
-        assert!(validate_timezone(bogus).is_ok(), "bogus zone is still well-shaped");
+        assert!(
+            validate_timezone(bogus).is_ok(),
+            "bogus zone is still well-shaped"
+        );
         if Path::new(ZONEINFO).is_dir() {
             assert!(check_timezone_exists(bogus).is_err());
         } else {

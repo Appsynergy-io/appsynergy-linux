@@ -194,16 +194,13 @@ impl Config {
             &detect_disks(variant),
         )?;
         check_batch_disks(cli.yes, disk_source, &disks)?;
-        let efi_size = env
-            .get("APPSYNERGY_EFI_SIZE")
-            .cloned()
-            .unwrap_or_else(|| {
-                if variant.is_server() {
-                    "1G".into()
-                } else {
-                    "2G".into()
-                }
-            });
+        let efi_size = env.get("APPSYNERGY_EFI_SIZE").cloned().unwrap_or_else(|| {
+            if variant.is_server() {
+                "1G".into()
+            } else {
+                "2G".into()
+            }
+        });
         let cryptname = env
             .get("APPSYNERGY_CRYPTNAME")
             .cloned()
@@ -220,13 +217,8 @@ impl Config {
             disks
         };
 
-        let layout = disk::plan_layout(
-            &disks,
-            &efi_size,
-            &cryptname,
-            variant.btrfs_label(),
-            false,
-        )?;
+        let layout =
+            disk::plan_layout(&disks, &efi_size, &cryptname, variant.btrfs_label(), false)?;
 
         let kernel = cli.kernel.unwrap_or_else(|| {
             match env
@@ -253,16 +245,13 @@ impl Config {
             .user
             .or_else(|| env.get("APPSYNERGY_USER").cloned())
             .unwrap_or_else(|| "imma".into());
-        let timezone = env
-            .get("APPSYNERGY_TIMEZONE")
-            .cloned()
-            .unwrap_or_else(|| {
-                if variant.is_server() {
-                    "UTC".into()
-                } else {
-                    "America/Sao_Paulo".into()
-                }
-            });
+        let timezone = env.get("APPSYNERGY_TIMEZONE").cloned().unwrap_or_else(|| {
+            if variant.is_server() {
+                "UTC".into()
+            } else {
+                "America/Sao_Paulo".into()
+            }
+        });
         let locale = env
             .get("APPSYNERGY_LOCALE")
             .cloned()
@@ -305,7 +294,12 @@ impl Config {
 
         let tpm_env_off = env
             .get("APPSYNERGY_TPM")
-            .map(|s| matches!(s.to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
+            .map(|s| {
+                matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "0" | "false" | "no" | "off"
+                )
+            })
             .unwrap_or(false);
         let tpm_env_on = env
             .get("APPSYNERGY_TPM")
@@ -347,9 +341,7 @@ impl Config {
                     .into_iter()
                     .find_map(|cand| {
                         let path = Path::new(cand);
-                        path.is_file()
-                            .then(|| read_ssh_pubkey(path).ok())
-                            .flatten()
+                        path.is_file().then(|| read_ssh_pubkey(path).ok()).flatten()
                     })
                 })
             }
@@ -428,7 +420,10 @@ pub fn resolve_disks_from(
         return Ok((disk::parse_disks_list(list)?, DiskSource::CliDisks));
     }
     if let Some(one) = cli_disk {
-        return Ok((vec![single_disk(&one.to_string_lossy())?], DiskSource::CliDisk));
+        return Ok((
+            vec![single_disk(&one.to_string_lossy())?],
+            DiskSource::CliDisk,
+        ));
     }
     for (env, source) in [
         (proc_env, DiskSource::ProcEnv),

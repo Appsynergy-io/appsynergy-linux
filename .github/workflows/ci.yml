@@ -53,7 +53,8 @@ jobs:
         run: |
           set -euo pipefail
           pacman -Syu --noconfirm --needed \
-            base-devel git shellcheck namcap rustup nodejs curl sudo actionlint zizmor
+            base-devel git shellcheck namcap rustup nodejs curl sudo actionlint zizmor \
+            cargo-audit cargo-deny gitleaks
           # Shared toolchain: Arch cargo/rustc are rustup proxies. Install as
           # root into /opt so uid 1000 `build` can run makepkg-adjacent cargo test.
           # The version is the one desktop/installer/rust-toolchain.toml pins.
@@ -61,7 +62,8 @@ jobs:
           mkdir -p /opt/rustup /opt/cargo
           toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' desktop/installer/rust-toolchain.toml)
           [[ -n "$toolchain" ]] || { echo "rust-toolchain.toml has no channel"; exit 1; }
-          rustup toolchain install "$toolchain" --profile minimal --no-self-update
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update \
+            --component rustfmt --component clippy
           rustup default "$toolchain"
           chmod -R a+rX /opt/rustup /opt/cargo
           id -u build >/dev/null 2>&1 || useradd -m -u 1000 build

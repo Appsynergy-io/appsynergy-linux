@@ -83,14 +83,12 @@ fn disk_source_precedence_is_flags_then_proc_env_then_file_then_detection() {
     assert_eq!(s, DiskSource::ProcEnv);
 
     // machine.env beats detection
-    let (d, s) =
-        config::resolve_disks_from(None, None, &env(&[]), &file, &detected).unwrap();
+    let (d, s) = config::resolve_disks_from(None, None, &env(&[]), &file, &detected).unwrap();
     assert_eq!(d, paths(&["/dev/file0"]));
     assert_eq!(s, DiskSource::FileEnv);
 
     // detection is last
-    let (d, s) =
-        config::resolve_disks_from(None, None, &env(&[]), &env(&[]), &detected).unwrap();
+    let (d, s) = config::resolve_disks_from(None, None, &env(&[]), &env(&[]), &detected).unwrap();
     assert_eq!(d, detected);
     assert_eq!(s, DiskSource::Detected);
 
@@ -109,7 +107,10 @@ fn disk_source_precedence_is_flags_then_proc_env_then_file_then_detection() {
     let (d, _) = config::resolve_disks_from(
         None,
         None,
-        &env(&[("APPSYNERGY_DISKS", "/dev/a"), ("APPSYNERGY_DISK", "/dev/b")]),
+        &env(&[
+            ("APPSYNERGY_DISKS", "/dev/a"),
+            ("APPSYNERGY_DISK", "/dev/b"),
+        ]),
         &env(&[]),
         &detected,
     )
@@ -125,7 +126,10 @@ fn batch_mode_refuses_auto_detected_disks_only() {
     let err = config::check_batch_disks(true, DiskSource::Detected, &d).unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("--yes requires an explicit"), "{msg}");
-    assert!(msg.contains("/dev/nvme0n1"), "message must name the target: {msg}");
+    assert!(
+        msg.contains("/dev/nvme0n1"),
+        "message must name the target: {msg}"
+    );
 
     for src in [
         DiskSource::CliDisks,
@@ -166,14 +170,10 @@ fn disk_flag_with_comma_names_the_right_flag() {
 
 #[test]
 fn single_disk_value_keeps_the_dev_prefix_rule() {
-    assert!(config::resolve_disks_from(
-        None,
-        Some(Path::new("sda")),
-        &env(&[]),
-        &env(&[]),
-        &[]
-    )
-    .is_err());
+    assert!(
+        config::resolve_disks_from(None, Some(Path::new("sda")), &env(&[]), &env(&[]), &[])
+            .is_err()
+    );
 }
 
 #[test]
@@ -265,9 +265,15 @@ fn install_problems_pacstrap_skips_package_owned_branding() {
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding"));
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-mirrorlist"));
     assert!(disk::should_skip_pacstrap_pkg("linux-appsynergy-server"));
-    assert!(disk::should_skip_pacstrap_pkg("linux-appsynergy-server-skylake"));
-    assert!(disk::should_skip_pacstrap_pkg("linux-appsynergy-server-tigerlake"));
-    assert!(disk::should_skip_pacstrap_pkg("linux-appsynergy-server-skylake-headers"));
+    assert!(disk::should_skip_pacstrap_pkg(
+        "linux-appsynergy-server-skylake"
+    ));
+    assert!(disk::should_skip_pacstrap_pkg(
+        "linux-appsynergy-server-tigerlake"
+    ));
+    assert!(disk::should_skip_pacstrap_pkg(
+        "linux-appsynergy-server-skylake-headers"
+    ));
     assert!(!disk::should_skip_pacstrap_pkg("base"));
 }
 
@@ -449,7 +455,10 @@ fn dual_nvme_dc_ssd_layout_matches_hardware_plan() {
     assert_eq!(lay.members[1].luks_part.to_string_lossy(), "/dev/nvme1n1p2");
     assert_eq!(lay.members[0].cryptname, "crypt0");
     assert_eq!(lay.members[1].cryptname, "crypt1");
-    assert_eq!(disk::btrfs_mkfs_profile_args(true), ["-d", "raid1", "-m", "raid1"]);
+    assert_eq!(
+        disk::btrfs_mkfs_profile_args(true),
+        ["-d", "raid1", "-m", "raid1"]
+    );
 }
 
 #[test]
@@ -716,7 +725,9 @@ fn config_load_validates_every_untrusted_identity_field() {
 
 #[test]
 fn pacstrap_skips_split_branding_packages() {
-    assert!(disk::should_skip_pacstrap_pkg("appsynergy-branding-desktop"));
+    assert!(disk::should_skip_pacstrap_pkg(
+        "appsynergy-branding-desktop"
+    ));
     assert!(disk::should_skip_pacstrap_pkg("appsynergy-wallpapers"));
 }
 
@@ -738,7 +749,10 @@ fn vconsole_written_before_mkinitcpio_contract() {
     let try_main = src.find("fn try_main").unwrap();
     let loc = src[try_main..].find("locale").unwrap();
     let mki = src[try_main..].find("mkinitcpio-config").unwrap();
-    assert!(loc < mki, "locale (vconsole) must run before mkinitcpio-config");
+    assert!(
+        loc < mki,
+        "locale (vconsole) must run before mkinitcpio-config"
+    );
     let _ = (vconsole, mkinit);
 }
 
@@ -748,7 +762,11 @@ fn efibootmgr_creates_appsynergy_label() {
     let src = include_str!("main.rs");
     assert!(src.contains("AppSynergy"));
     assert!(src.contains("efibootmgr"));
-    assert!(src.contains("systemd-bootx64.efi") || src.contains("SYSTEMD-BOOT") || src.contains(r"\EFI\systemd"));
+    assert!(
+        src.contains("systemd-bootx64.efi")
+            || src.contains("SYSTEMD-BOOT")
+            || src.contains(r"\EFI\systemd")
+    );
 }
 
 #[test]
@@ -779,7 +797,10 @@ fn server_os_release_replaces_the_workstation_variant() {
     );
     assert!(out.contains("VARIANT=\"Server\"\n"));
     assert!(out.contains("VARIANT_ID=server\n"));
-    assert!(!out.contains("Workstation"), "no workstation identity survives");
+    assert!(
+        !out.contains("Workstation"),
+        "no workstation identity survives"
+    );
     // display names become the server ones
     assert!(out.contains("NAME=\"AppSynergy Server\""));
     assert!(out.contains("PRETTY_NAME=\"AppSynergy Server\""));
@@ -867,7 +888,10 @@ fn critical_server_services_are_enabled_by_a_hard_call() {
         stmt.contains(")?"),
         "critical enables must propagate with `?`: {stmt}"
     );
-    assert!(!stmt.contains("|| true"), "no shell-level suppression: {stmt}");
+    assert!(
+        !stmt.contains("|| true"),
+        "no shell-level suppression: {stmt}"
+    );
     for svc in [
         "sshd",
         "systemd-networkd",
@@ -875,11 +899,18 @@ fn critical_server_services_are_enabled_by_a_hard_call() {
         "nftables",
         "k3s",
     ] {
-        assert!(stmt.contains(svc), "{svc} must be in the hard enable: {stmt}");
+        assert!(
+            stmt.contains(svc),
+            "{svc} must be in the hard enable: {stmt}"
+        );
     }
     // apparmor and fstrim.timer stay warn-only, and the desktop set with them.
-    assert!(body.contains("cmd::arch_chroot_ok(&cfg.mnt, \"systemctl enable apparmor fstrim.timer || true\")"));
-    assert!(body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true"));
+    assert!(body.contains(
+        "cmd::arch_chroot_ok(&cfg.mnt, \"systemctl enable apparmor fstrim.timer || true\")"
+    ));
+    assert!(
+        body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true")
+    );
 }
 
 #[test]
@@ -923,12 +954,21 @@ fn esp_comparison_ignores_random_seed_and_catches_stale_images() {
     let (a, b) = (base.join("boot"), base.join("esp2"));
     std::fs::create_dir_all(&a).expect("invariant: temp dirs");
     std::fs::create_dir_all(&b).expect("invariant: temp dirs");
-    let write = |d: &Path, n: &str, c: &str| std::fs::write(d.join(n), c).expect("invariant: write");
+    let write =
+        |d: &Path, n: &str, c: &str| std::fs::write(d.join(n), c).expect("invariant: write");
 
     write(&a, "vmlinuz-linux-appsynergy-server-skylake", "kernel");
     write(&b, "vmlinuz-linux-appsynergy-server-skylake", "kernel");
-    write(&a, "initramfs-linux-appsynergy-server-skylake.img", "unlock");
-    write(&b, "initramfs-linux-appsynergy-server-skylake.img", "unlock");
+    write(
+        &a,
+        "initramfs-linux-appsynergy-server-skylake.img",
+        "unlock",
+    );
+    write(
+        &b,
+        "initramfs-linux-appsynergy-server-skylake.img",
+        "unlock",
+    );
     write(&a, "random-seed", "seed-a");
     write(&b, "random-seed", "seed-b");
     let ok = crate::compare_esp_boot_images(&a, &b).expect("matching images verify");
