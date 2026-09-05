@@ -813,9 +813,10 @@ fn pacstrap_skips_split_branding_packages() {
 
 #[test]
 fn step_failures_are_named() {
-    let src = include_str!("main.rs");
-    assert!(src.contains("step `{name}` failed") || src.contains("step `"));
-    assert!(src.contains("fn step("));
+    let src = include_str!("phase.rs");
+    assert!(src.contains("step `{id}` failed"));
+    let main = include_str!("main.rs");
+    assert!(main.contains("journal.run("));
 }
 
 #[test]
@@ -984,12 +985,13 @@ fn critical_server_services_are_enabled_by_a_hard_call() {
             "{svc} must be in the hard enable: {stmt}"
         );
     }
-    // apparmor and fstrim.timer stay warn-only, and the desktop set with them.
+    // apparmor and fstrim.timer stay warn-only. Desktop NM/SDDM/sshd are hard.
     assert!(body.contains(
         "cmd::arch_chroot_ok(&cfg.mnt, \"systemctl enable apparmor fstrim.timer || true\")"
     ));
+    assert!(body.contains("systemctl enable NetworkManager sddm sshd"));
     assert!(
-        body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true")
+        !body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true")
     );
 }
 
@@ -1002,13 +1004,13 @@ fn failover_esp_is_resynced_after_the_last_initramfs_write() {
     let try_main = src.find("fn try_main").expect("invariant: pipeline exists");
     let body = &src[try_main..];
     let boot = body
-        .find("step(\"bootloader\"")
+        .find("journal.run(\"bootloader\"")
         .expect("invariant: bootloader step");
     let verify = body
-        .find("step(\"initramfs-verify\"")
+        .find("journal.run(\"initramfs-verify\"")
         .expect("invariant: unlock verification step");
     let resync = body
-        .find("step(\"esp-resync\"")
+        .find("journal.run(\"esp-resync\"")
         .expect("invariant: failover ESP is re-synced");
     assert!(boot < verify, "bootloader precedes the unlock verification");
     assert!(

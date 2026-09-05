@@ -17,6 +17,7 @@ mod config;
 mod detect;
 mod disk;
 mod guide;
+mod phase;
 mod validate;
 
 #[cfg(test)]
@@ -56,6 +57,10 @@ fn try_main() -> Result<()> {
     // Skip with: --yes and flags, or APPSYNERGY_NO_GUIDE=1
     if guide::should_guide(&cli) {
         guide::run(&mut cli)?;
+    }
+
+    if cli.fresh {
+        phase::Journal::reset()?;
     }
 
     let cfg = Config::load(cli)?;
@@ -117,47 +122,49 @@ fn try_main() -> Result<()> {
         }
     }
     banner(&cfg);
-    confirm(&cfg)?;
+    let mut journal = phase::Journal::open()?;
+    if journal.completed() > 0 {
+        println!(
+            "  resume: {} phase(s) already done this boot (journal {})",
+            journal.completed(),
+            phase::JOURNAL_PATH
+        );
+        println!("  --fresh to ignore it and run every phase again");
+    } else {
+        confirm(&cfg)?;
+    }
     warn_network();
 
-    step("partition", || partition(&cfg))?;
-    step("luks", || luks_format_open(&cfg))?;
-    step("filesystems", || filesystems(&cfg))?;
-    step("subvolumes", || btrfs_subvols(&cfg))?;
+    journal.run("partition", || partition(&cfg))?;
+    journal.run("luks", || luks_format_open(&cfg))?;
+    journal.run("filesystems", || filesystems(&cfg))?;
+    journal.run("subvolumes", || btrfs_subvols(&cfg))?;
     if cfg.layout.is_raid1() {
-        step("esp-mirror", || mirror_esp(&cfg))?;
+        journal.run("esp-mirror", || mirror_esp(&cfg))?;
     }
-    step("pacstrap", || pacstrap_packages(&cfg))?;
-    step("local-kernel", || install_local_kernel(&cfg))?;
-    step("appsynergy-repo", || register_appsynergy_repo(&cfg))?;
-    step("branding", || install_branding(&cfg))?;
-    step("k3s", || install_k3s(&cfg))?;
-    step("fstab-crypttab", || fstab_crypttab(&cfg))?;
-    step("locale", || locale_hostname(&cfg))?;
-    step("os-release", || apply_os_release(&cfg))?;
-    step("network", || network_setup(&cfg))?;
-    step("mkinitcpio-config", || configure_mkinitcpio(&cfg))?;
-    step("users", || create_users(&cfg))?;
-    // Existing operator pubkey from live ISO → root + user (both variants).
-    step("ssh-keys", || install_ssh_keys(&cfg))?;
-    step("bootloader", || install_bootloader(&cfg))?;
-    step("efibootmgr", || fix_efi_nvram(&cfg))?;
-    // Server hooks before initramfs so dropbear + SSH unlock are in the image.
-    step("server-overlay", || apply_server_overlay(&cfg))?;
-    step("initramfs", || rebuild_initramfs(&cfg))?;
-    // TPM after initramfs so sd-encrypt + crypttab exist; rebuild again if enrolled.
-    step("tpm-enroll", || enroll_tpm(&cfg))?;
-    // Must be the LAST initramfs write: kernel-package pacman hooks and TPM
-    // enrolment also rebuild it, and whichever runs last wins.
-    step("initramfs-verify", || verify_initrd_unlock(&cfg))?;
-    // install_bootloader's mirror predates every later initramfs write (rebuild_initramfs,
-    // the TPM re-enrol rebuild, the verification rebuild), so the failover ESP would hold
-    // an image without the unlock hooks — exactly the case it exists for.
+    journal.run("pacstrap", || pacstrap_packages(&cfg))?;
+    journal.run("local-kernel", || install_local_kernel(&cfg))?;
+    journal.run("appsynergy-repo", || register_appsynergy_repo(&cfg))?;
+    journal.run("branding", || install_branding(&cfg))?;
+    journal.run("k3s", || install_k3s(&cfg))?;
+    journal.run("fstab-crypttab", || fstab_crypttab(&cfg))?;
+    journal.run("locale", || locale_hostname(&cfg))?;
+    journal.run("os-release", || apply_os_release(&cfg))?;
+    journal.run("network", || network_setup(&cfg))?;
+    journal.run("mkinitcpio-config", || configure_mkinitcpio(&cfg))?;
+    journal.run("users", || create_users(&cfg))?;
+    journal.run("ssh-keys", || install_ssh_keys(&cfg))?;
+    journal.run("bootloader", || install_bootloader(&cfg))?;
+    journal.run("efibootmgr", || fix_efi_nvram(&cfg))?;
+    journal.run("server-overlay", || apply_server_overlay(&cfg))?;
+    journal.run("initramfs", || rebuild_initramfs(&cfg))?;
+    journal.run("tpm-enroll", || enroll_tpm(&cfg))?;
+    journal.run("initramfs-verify", || verify_initrd_unlock(&cfg))?;
     if cfg.layout.is_raid1() {
-        step("esp-resync", || resync_esp_mirror(&cfg))?;
+        journal.run("esp-resync", || resync_esp_mirror(&cfg))?;
     }
-    step("services", || enable_services(&cfg))?;
-    step("finalize", || finalize(&cfg))?;
+    journal.run("services", || enable_services(&cfg))?;
+    journal.run("finalize", || finalize(&cfg))?;
 
     println!();
     println!("============================================================");
@@ -205,11 +212,6 @@ fn try_main() -> Result<()> {
         closes.join(" && ")
     );
     Ok(())
-}
-
-fn step(name: &str, f: impl FnOnce() -> Result<()>) -> Result<()> {
-    println!("==> {name}");
-    f().with_context(|| format!("step `{name}` failed"))
 }
 
 fn is_root() -> bool {
@@ -2001,12 +2003,11 @@ fn enable_services(cfg: &Config) -> Result<()> {
             "systemctl disable sddm NetworkManager bluetooth 2>/dev/null || true",
         );
     } else {
-        // Desktop: no k3s, no docker.
+        cmd::arch_chroot(&cfg.mnt, "systemctl enable NetworkManager sddm sshd")?;
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            "systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true",
+            "systemctl enable fstrim.timer bluetooth obex || true",
         );
-        cmd::arch_chroot_ok(&cfg.mnt, "systemctl enable obex || true");
         cmd::arch_chroot_ok(
             &cfg.mnt,
             "systemctl --global enable plasma-kwallet-pam.service || true",

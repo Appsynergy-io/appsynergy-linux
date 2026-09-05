@@ -121,6 +121,10 @@ pub struct Cli {
     /// Desktop only: also pacstrap packages-target-desktop-dev.txt (same ISO).
     #[arg(long = "dev", env = "APPSYNERGY_DESKTOP_DEV", action = clap::ArgAction::SetTrue)]
     pub desktop_dev: bool,
+
+    /// Ignore a same-boot journal and run every phase again.
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    pub fresh: bool,
 }
 
 #[derive(Debug, Clone)]
