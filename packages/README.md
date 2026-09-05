@@ -51,4 +51,4 @@ pacman/        # SERVER — the published Server URL, one line
 ./scripts/verify-repo.sh
 ```
 
-The `publish` job in `.github/workflows/ci.yml` is the publisher: every push to `main`, after `check` passes, and a no-op when the published db already describes the staged packages. Public GET, no auth.
+A published `pkgver-pkgrel` is immutable: `build-repo.sh` pulls a version the published db already names back into staging instead of rebuilding it, so new bytes ship only with a `pkgrel` bump (`REBUILD_PUBLISHED=1` overrides, dev only). The `publish` job in `.github/workflows/ci.yml` is the publisher: every push to `main`, after `check` passes, and a no-op when the published db already describes the staged packages. Public GET, no auth.
