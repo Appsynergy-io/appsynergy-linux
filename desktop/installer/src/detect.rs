@@ -17,25 +17,11 @@ use std::path::Path;
 /// `adversarial_tests::installer_kernel_package_matches_the_pin`.
 pub const KERNEL_PKG: &str = "appsynergy-linux";
 
-/// Retired kernel packages. Kept solely so an upgrade path can find and remove
-/// them — never installed, never selected.
-pub const LEGACY_KERNEL_PKGS: &[&str] = &[
-    "linux-appsynergy",
-    "linux-appsynergy-server",
-    "linux-appsynergy-server-skylake",
-    "linux-appsynergy-server-tigerlake",
-    "linux-appsynergy-server-ovh",
-    "linux-appsynergy-server-nuc",
-    "linux-cachyos-igpu",
-];
-
 /// Result of kernel selection for a chosen product variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelSelection {
-    /// Human CPU model line.
+    /// Human CPU model line from `/proc/cpuinfo`.
     pub cpu_model: String,
-    /// Short family label for logs (e.g. "Coffee Lake", "Tiger Lake").
-    pub family_label: String,
     /// Package prefixes to install (headers resolved separately).
     /// Empty means this CPU cannot run the kernel we ship.
     pub pkg_prefixes: Vec<&'static str>,
@@ -98,12 +84,9 @@ pub fn select_kernel_for_variant(
     cpu_model: &str,
     cpu_flags: &str,
 ) -> KernelSelection {
-    let family = family_label(cpu_model);
-
     if !supports_x86_64_v3(cpu_flags) {
         return KernelSelection {
             cpu_model: cpu_model.to_string(),
-            family_label: family,
             pkg_prefixes: vec![],
             reason: format!(
                 "CPU lacks the x86-64-v3 feature set that {KERNEL_PKG} is built for \
@@ -114,54 +97,8 @@ pub fn select_kernel_for_variant(
 
     KernelSelection {
         cpu_model: cpu_model.to_string(),
-        family_label: family,
         pkg_prefixes: vec![KERNEL_PKG],
         reason: format!("x86-64-v3 capable → {KERNEL_PKG}"),
-    }
-}
-
-/// Short family label for banners (best-effort).
-pub fn family_label(cpu_model: &str) -> String {
-    let m = cpu_model.to_ascii_lowercase();
-    if m.contains("1185g7") || m.contains("tiger lake") || m.contains("tigerlake") {
-        return "Tiger Lake".into();
-    }
-    if m.contains("ice lake") || m.contains("icelake") {
-        return "Ice Lake".into();
-    }
-    if m.contains("alder lake") || m.contains("12th gen") || m.contains("12900") {
-        return "Alder Lake".into();
-    }
-    if m.contains("raptor lake") || m.contains("13th gen") || m.contains("14th gen") {
-        return "Raptor Lake".into();
-    }
-    if m.contains("coffee lake")
-        || m.contains("coffeelake")
-        || m.contains("8th gen")
-        || m.contains("9th gen")
-    {
-        return "Coffee Lake".into();
-    }
-    if m.contains("kaby lake") || m.contains("kabylake") || m.contains("7th gen") {
-        return "Kaby Lake".into();
-    }
-    if m.contains("comet lake") || m.contains("10th gen") {
-        return "Comet Lake".into();
-    }
-    if m.contains("skylake") || m.contains("6th gen") || m.contains("e3-1270") {
-        return "Skylake".into();
-    }
-    if m.contains("11th gen") {
-        return "11th gen".into();
-    }
-    if cpu_model.trim().is_empty() {
-        return "unknown".into();
-    }
-    let t = cpu_model.trim();
-    if t.len() > 48 {
-        format!("{}…", &t[..45])
-    } else {
-        t.to_string()
     }
 }
 
@@ -226,11 +163,16 @@ mod tests {
     }
 
     #[test]
-    fn legacy_names_are_not_selectable() {
+    fn retired_names_are_not_selectable() {
         let s = select_kernel_for_variant(true, "Intel(R) Xeon(R) CPU E3-1270 v6", SKYLAKE_FLAGS);
-        for legacy in LEGACY_KERNEL_PKGS {
+        assert_eq!(s.pkg_prefixes, [KERNEL_PKG]);
+        for legacy in [
+            "linux-appsynergy",
+            "linux-appsynergy-server-skylake",
+            "linux-cachyos-igpu",
+        ] {
             assert!(
-                !s.pkg_prefixes.contains(legacy),
+                !s.pkg_prefixes.contains(&legacy),
                 "{legacy} still selectable"
             );
         }

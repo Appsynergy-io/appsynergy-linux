@@ -394,15 +394,16 @@ fn apparmor_is_enabled_on_the_cmdline_because_the_kernel_does_not_default_it() {
 }
 
 #[test]
-fn retired_kernel_packages_are_fallback_only() {
-    // The old names stay recognisable so pre-rename media still installs, but they
-    // must never be preferred over the current package.
-    use crate::detect::LEGACY_KERNEL_PKGS;
-    for legacy in LEGACY_KERNEL_PKGS {
-        assert_ne!(*legacy, crate::detect::KERNEL_PKG);
-    }
+fn retired_kernel_names_are_not_installed() {
     let src = include_str!("main.rs");
-    assert!(src.contains("using retired package"));
+    assert!(
+        !src.contains("using retired package"),
+        "installer must not fall back to linux-appsynergy*"
+    );
+    assert!(
+        !src.contains("LEGACY_KERNEL_PKGS"),
+        "legacy kernel table must not remain in the installer"
+    );
 }
 
 #[test]
@@ -449,7 +450,7 @@ fn install_problems_password_file_strips_newline_not_content() {
 fn dual_nvme_dc_ssd_layout_matches_hardware_plan() {
     // 2× Intel SSDPE2MX450G7-class: /dev/nvme0n1 + /dev/nvme1n1
     let disks = disk::parse_disks_list("/dev/nvme0n1,/dev/nvme1n1").unwrap();
-    let lay = disk::plan_layout(&disks, "1G", "cryptroot", "appsynergy-server", false).unwrap();
+    let lay = disk::plan_layout(&disks, "1G", "cryptroot", "appsynergy-server").unwrap();
     assert!(lay.raid1);
     assert_eq!(lay.members[0].efi_part.to_string_lossy(), "/dev/nvme0n1p1");
     assert_eq!(lay.members[1].luks_part.to_string_lossy(), "/dev/nvme1n1p2");
@@ -494,7 +495,7 @@ fn dual_cmdline_opens_both_luks_before_root() {
 #[test]
 fn single_disk_desktop_unchanged_cryptname() {
     let disks = vec![std::path::PathBuf::from("/dev/nvme0n1")];
-    let lay = disk::plan_layout(&disks, "2G", "cryptroot", "appsynergy", false).unwrap();
+    let lay = disk::plan_layout(&disks, "2G", "cryptroot", "appsynergy").unwrap();
     assert!(!lay.raid1);
     assert_eq!(lay.primary().cryptname, "cryptroot");
 }
@@ -507,13 +508,7 @@ fn reject_invalid_disk_path_not_under_dev() {
 #[test]
 fn reject_more_than_two_disks() {
     let d = disk::parse_disks_list("/dev/nvme0n1,/dev/nvme1n1,/dev/nvme2n1").unwrap();
-    assert!(disk::plan_layout(&d, "1G", "cryptroot", "x", false).is_err());
-}
-
-#[test]
-fn force_raid1_without_two_disks_fails() {
-    let d = vec![std::path::PathBuf::from("/dev/nvme0n1")];
-    assert!(disk::plan_layout(&d, "1G", "cryptroot", "x", true).is_err());
+    assert!(disk::plan_layout(&d, "1G", "cryptroot", "x").is_err());
 }
 
 #[test]
@@ -556,8 +551,8 @@ fn server_variant_gets_no_graphical_branding() {
     for call in [
         "names.push(\"appsynergy-branding-desktop\")",
         "names.push(\"appsynergy-wallpapers\")",
-        "appsynergy-branding-desktop-*.pkg.tar.zst",
-        "appsynergy-wallpapers-*.pkg.tar.zst",
+        "\"appsynergy-branding-desktop\"",
+        "\"appsynergy-wallpapers\"",
     ] {
         assert!(
             gated.contains(call),
@@ -572,13 +567,29 @@ fn server_variant_gets_no_graphical_branding() {
 
 #[test]
 fn branding_globs_are_version_anchored() {
-    // "appsynergy-branding-*" also matches "appsynergy-branding-desktop-*",
-    // which would drag the graphical package onto a server. Anchor on [0-9].
+    // Digit after the hyphen is the identity/desktop split. The old glob_simple
+    // treated `[0-9]` as literal characters and never matched a real package.
+    assert!(crate::version_anchored_pkg(
+        "appsynergy-branding",
+        "appsynergy-branding-3-4-any.pkg.tar.zst"
+    ));
+    assert!(!crate::version_anchored_pkg(
+        "appsynergy-branding",
+        "appsynergy-branding-desktop-1-4-any.pkg.tar.zst"
+    ));
+    assert!(crate::version_anchored_pkg(
+        "appsynergy-branding-desktop",
+        "appsynergy-branding-desktop-1-4-any.pkg.tar.zst"
+    ));
+    assert!(crate::version_anchored_pkg(
+        "appsynergy-keyring",
+        "appsynergy-keyring-1-3-any.pkg.tar.zst"
+    ));
+    assert!(!crate::version_anchored_pkg(
+        "appsynergy-keyring",
+        "appsynergy-keyring-desktop-1-3-any.pkg.tar.zst"
+    ));
     let src = include_str!("main.rs");
-    assert!(
-        src.contains("appsynergy-branding-[0-9]*.pkg.tar.zst"),
-        "identity glob must be version-anchored"
-    );
     assert!(
         !src.contains("appsynergy-branding-*.pkg.tar.zst"),
         "unanchored appsynergy-branding-* glob also matches -desktop-"
@@ -609,8 +620,9 @@ fn installer_populates_keyring() {
         "keyring population must be hard-asserted against the pinned fingerprint"
     );
     assert!(
-        src.contains("appsynergy-keyring-[0-9]*.pkg.tar.zst"),
-        "keyring package must be installed from the offline payload"
+        src.contains("list_anchored_pkgs(&cfg.local_pkgdir, \"appsynergy-keyring\")")
+            || src.contains("list_anchored_pkgs(&cfg.local_pkgdir, pkg)"),
+        "keyring package must be installed from the offline payload via the version-anchored matcher"
     );
     assert!(
         src.contains("3B90D92D1E28E9E060D5C53D15D4351CF0D36AD1"),

@@ -24,7 +24,7 @@ mod adversarial_tests;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use config::{Cli, Config, KernelMode, Variant};
+use config::{Cli, Config, Variant};
 use detect::KernelSelection;
 use std::fs;
 use std::io::{self, Write};
@@ -101,19 +101,10 @@ fn try_main() -> Result<()> {
     // The target's [appsynergy] section and the key that verifies it both ship in
     // packages, so a payload/ISO built without them can only end in an unusable or
     // untrusted repo. Fail here, before partitioning — never mid-install on a wiped disk.
-    for (pkg, pattern) in [
-        (
-            "appsynergy-keyring",
-            "appsynergy-keyring-[0-9]*.pkg.tar.zst",
-        ),
-        (
-            "appsynergy-mirrorlist",
-            "appsynergy-mirrorlist-[0-9]*.pkg.tar.zst",
-        ),
-    ] {
-        if list_glob(&cfg.local_pkgdir, pattern).is_empty() {
+    for pkg in ["appsynergy-keyring", "appsynergy-mirrorlist"] {
+        if list_anchored_pkgs(&cfg.local_pkgdir, pkg).is_empty() {
             bail!(
-                "missing {pkg} in {} (no {pattern}).\n\
+                "missing {pkg} in {} (need {pkg}-<digit>*.pkg.tar.zst).\n\
                  Rebuild the ISO/payload with desktop/scripts/build-iso.sh: without it the \
                  installed system cannot verify signatures for [appsynergy].",
                 cfg.local_pkgdir.display()
@@ -135,7 +126,6 @@ fn try_main() -> Result<()> {
     step("local-kernel", || install_local_kernel(&cfg))?;
     step("appsynergy-repo", || register_appsynergy_repo(&cfg))?;
     step("branding", || install_branding(&cfg))?;
-    step("browsers", || install_browsers(&cfg))?;
     step("k3s", || install_k3s(&cfg))?;
     step("fstab-crypttab", || fstab_crypttab(&cfg))?;
     step("locale", || locale_hostname(&cfg))?;
@@ -259,26 +249,22 @@ fn banner(cfg: &Config) {
         cfg.locale, cfg.keymap, cfg.timezone
     );
     let ksel = detect::select_kernel_live(cfg.variant.is_server());
-    println!("  kernel:     {} ({})", cfg.kernel, cfg.variant);
-    if cfg.kernel == KernelMode::Local {
-        println!(
-            "  cpu:        {} ({})",
-            if ksel.cpu_model.is_empty() {
-                "unknown"
-            } else {
-                ksel.cpu_model.as_str()
-            },
-            ksel.family_label
-        );
-        if ksel.pkg_prefixes.is_empty() {
-            println!("  pkg:        (none matched — install will fail unless --kernel repo)");
+    println!(
+        "  cpu:        {}",
+        if ksel.cpu_model.is_empty() {
+            "unknown"
         } else {
-            println!(
-                "  pkg:        {}  [{}]",
-                ksel.pkg_prefixes.join(", "),
-                ksel.reason
-            );
+            ksel.cpu_model.as_str()
         }
+    );
+    if ksel.pkg_prefixes.is_empty() {
+        println!("  pkg:        (CPU cannot run appsynergy-linux — install will refuse)");
+    } else {
+        println!(
+            "  pkg:        {}  [{}]",
+            ksel.pkg_prefixes.join(", "),
+            ksel.reason
+        );
     }
     println!("  packages:   {}", cfg.pkgs_file.display());
     println!(
@@ -699,11 +685,7 @@ fn compare_esp_boot_images(primary: &Path, secondary: &Path) -> Result<Vec<Strin
 }
 
 fn pacstrap_packages(cfg: &Config) -> Result<()> {
-    let mut pkgs = config::package_list(&cfg.pkgs_file)?;
-    if cfg.kernel == KernelMode::Repo {
-        pkgs.push("linux".into());
-        pkgs.push("linux-headers".into());
-    }
+    let pkgs = config::package_list(&cfg.pkgs_file)?;
     let _ = cmd::run("pacstrap", "appsynergy-sanitize-mirrors", &[]);
     let mnt = cfg.mnt.to_string_lossy().into_owned();
     let mut cmd_args = vec!["-K".to_string(), mnt];
@@ -730,19 +712,15 @@ fn pacstrap_packages(cfg: &Config) -> Result<()> {
 }
 
 fn install_local_kernel(cfg: &Config) -> Result<()> {
-    if cfg.kernel != KernelMode::Local {
-        return Ok(());
-    }
     let dir = &cfg.local_pkgdir;
     let sel = detect::select_kernel_live(cfg.variant.is_server());
     println!(
-        "    cpu: {} ({}) — {}",
+        "    cpu: {} — {}",
         if sel.cpu_model.is_empty() {
             "unknown"
         } else {
             sel.cpu_model.as_str()
         },
-        sel.family_label,
         sel.reason
     );
     let pairs = find_kernel_pkg_pairs(dir, cfg.variant, &sel)?;
@@ -798,15 +776,13 @@ fn find_kernel_pkg_pairs(
     if sel.pkg_prefixes.is_empty() {
         bail!(
             "this CPU cannot run the kernel AppSynergy ships.\n\
-             cpu: {} ({})\n\
-             {}\n\
-             Re-run with --kernel repo to install stock Arch linux instead.",
+             cpu: {}\n\
+             {}",
             if sel.cpu_model.is_empty() {
                 "unknown"
             } else {
                 sel.cpu_model.as_str()
             },
-            sel.family_label,
             sel.reason
         );
     }
@@ -817,21 +793,8 @@ fn find_kernel_pkg_pairs(
         }
     }
 
-    // Legacy names are accepted only as a fallback on media built before the
-    // rename, and never chosen over the current package.
-    for legacy in detect::LEGACY_KERNEL_PKGS {
-        if let Some(p) = try_pair(legacy) {
-            eprintln!(
-                "WARN: {} missing; using retired package {legacy}",
-                detect::KERNEL_PKG
-            );
-            return Ok(vec![p]);
-        }
-    }
-
     bail!(
-        "kernel mode local but no {} package in {} (variant={}); need {} + {}-headers.\n\
-         Or re-run with --kernel repo for stock Arch linux.",
+        "no {} package in {} (variant={}); need {} + {}-headers on the ISO/payload.",
         detect::KERNEL_PKG,
         dir.display(),
         if variant.is_server() {
@@ -868,7 +831,6 @@ fn match_kernel_hdr_prefix(prefix: &str, name: &str) -> bool {
 }
 
 fn list_glob(dir: &Path, pattern: &str) -> Vec<PathBuf> {
-    // simple prefix/suffix match for our patterns like name-[0-9]*.pkg.tar.zst
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return vec![],
@@ -891,6 +853,39 @@ fn glob_simple(pat: &str, name: &str) -> bool {
     } else {
         name == pat
     }
+}
+
+/// `{pkg}-<digit>…pkg.tar.zst`. The digit after the hyphen is what keeps
+/// `appsynergy-branding` from matching `appsynergy-branding-desktop-*`.
+pub fn version_anchored_pkg(pkg: &str, filename: &str) -> bool {
+    let rest = match filename.strip_prefix(pkg) {
+        Some(r) => r,
+        None => return false,
+    };
+    let rest = match rest.strip_prefix('-') {
+        Some(r) => r,
+        None => return false,
+    };
+    rest.starts_with(|c: char| c.is_ascii_digit()) && filename.ends_with(".pkg.tar.zst")
+}
+
+fn list_anchored_pkgs(dir: &Path, pkg: &str) -> Vec<PathBuf> {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+    let mut out = Vec::new();
+    for ent in entries.flatten() {
+        let name = ent.file_name().to_string_lossy().to_string();
+        if name.contains("-debug-") || name.contains("-dbg-") {
+            continue;
+        }
+        if version_anchored_pkg(pkg, &name) {
+            out.push(ent.path());
+        }
+    }
+    out.sort();
+    out
 }
 
 /// Subscribe the target to the signed `[appsynergy]` repo through the keyring.
@@ -917,10 +912,10 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
     }
 
     // Preflight already proved both are present.
-    let mut local = list_glob(&cfg.local_pkgdir, "appsynergy-keyring-[0-9]*.pkg.tar.zst");
-    local.extend(list_glob(
+    let mut local = list_anchored_pkgs(&cfg.local_pkgdir, "appsynergy-keyring");
+    local.extend(list_anchored_pkgs(
         &cfg.local_pkgdir,
-        "appsynergy-mirrorlist-[0-9]*.pkg.tar.zst",
+        "appsynergy-mirrorlist",
     ));
     let dest = cfg.mnt.join("root/pkgs");
     fs::create_dir_all(&dest)?;
@@ -988,26 +983,25 @@ fn install_branding(cfg: &Config) -> Result<()> {
     );
 
     // Local packages with --overwrite for any leftover paths.
-    // The [0-9] anchor matters: a bare "appsynergy-branding-*" glob also matches
-    // "appsynergy-branding-desktop-*", which would drag Plasma assets onto a server.
-    let mut local: Vec<PathBuf> =
-        list_glob(&cfg.local_pkgdir, "appsynergy-branding-[0-9]*.pkg.tar.zst");
-    local.extend(list_glob(
+    // Digit after the hyphen is the identity/desktop split: `appsynergy-branding-3-4`
+    // matches, `appsynergy-branding-desktop-1-4` does not.
+    let mut local: Vec<PathBuf> = list_anchored_pkgs(&cfg.local_pkgdir, "appsynergy-branding");
+    local.extend(list_anchored_pkgs(
         &cfg.local_pkgdir,
-        "appsynergy-mirrorlist-*.pkg.tar.zst",
+        "appsynergy-mirrorlist",
     ));
-    local.extend(list_glob(
+    local.extend(list_anchored_pkgs(
         &cfg.local_pkgdir,
-        "appsynergy-ca-certificates-*.pkg.tar.zst",
+        "appsynergy-ca-certificates",
     ));
     if desktop {
-        local.extend(list_glob(
+        local.extend(list_anchored_pkgs(
             &cfg.local_pkgdir,
-            "appsynergy-branding-desktop-*.pkg.tar.zst",
+            "appsynergy-branding-desktop",
         ));
-        local.extend(list_glob(
+        local.extend(list_anchored_pkgs(
             &cfg.local_pkgdir,
-            "appsynergy-wallpapers-*.pkg.tar.zst",
+            "appsynergy-wallpapers",
         ));
     }
     if !local.is_empty() {
@@ -1043,36 +1037,6 @@ fn install_branding(cfg: &Config) -> Result<()> {
     if !cfg.mnt.join("etc/motd").is_file() {
         eprintln!("WARN: /etc/motd missing after branding install");
     }
-    Ok(())
-}
-
-fn install_browsers(cfg: &Config) -> Result<()> {
-    if cfg.variant.is_server() {
-        println!("    skip browsers (server variant)");
-        return Ok(());
-    }
-    let mut pkgs = list_glob(&cfg.local_pkgdir, "brave-bin-*.pkg.tar.zst");
-    pkgs.extend(list_glob(
-        &cfg.local_pkgdir,
-        "thorium-browser-bin-*.pkg.tar.zst",
-    ));
-    if pkgs.is_empty() {
-        eprintln!("    WARN: no brave-bin / thorium pkgs — install after boot");
-        return Ok(());
-    }
-    let dest = cfg.mnt.join("root/pkgs");
-    fs::create_dir_all(&dest)?;
-    for p in &pkgs {
-        fs::copy(p, dest.join(p.file_name().unwrap()))?;
-    }
-    cmd::arch_chroot(
-        &cfg.mnt,
-        r#"
-shopt -s nullglob
-pkgs=(/root/pkgs/brave-bin-*.pkg.tar.zst /root/pkgs/thorium-browser-bin-*.pkg.tar.zst)
-if ((${#pkgs[@]})); then pacman -U --noconfirm --overwrite '*' "${pkgs[@]}"; fi
-"#,
-    )?;
     Ok(())
 }
 
@@ -1615,7 +1579,7 @@ chmod 440 /etc/sudoers.d/wheel
 
 fn install_bootloader(cfg: &Config) -> Result<()> {
     cmd::arch_chroot(&cfg.mnt, "bootctl install")?;
-    // List all installed kernels (server ships ovh + nuc).
+    // One kernel package; list whatever vmlinuz landed in /boot.
     let vmlinuz_list = cmd::output(
         "bootloader",
         "arch-chroot",
@@ -1683,13 +1647,10 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
         "intel-ucode.img"
     };
 
-    // One kernel installed (variant + CPU). Map vmlinuz name → boot entry.
-    let sel = detect::select_kernel_live(cfg.variant.is_server());
     let mut default_entry = String::from("appsynergy.conf");
     let mut wrote_any = false;
 
     for vmlinuz in &kernels {
-        // vmlinuz-…-appsynergy-server-skylake → initramfs-…-appsynergy-server-skylake.img
         let kver = vmlinuz.strip_prefix("vmlinuz-").unwrap_or(vmlinuz);
         let initramfs = format!("initramfs-{kver}.img");
         if !cfg.mnt.join("boot").join(&initramfs).is_file() {
@@ -1697,19 +1658,8 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
             continue;
         }
 
-        let (entry_name, title) = if kver.contains("appsynergy-server-skylake")
-            || kver.contains("appsynergy-server-ovh")
-        {
-            ("appsynergy-skylake.conf", "AppSynergy Server (skylake)")
-        } else if kver.contains("appsynergy-server-tigerlake")
-            || kver.contains("appsynergy-server-nuc")
-        {
-            ("appsynergy-tigerlake.conf", "AppSynergy Server (tigerlake)")
-        } else {
-            ("appsynergy.conf", cfg.variant.boot_entry_title())
-        };
-
-        // Single install path: last written entry is the default (only one expected).
+        let entry_name = "appsynergy.conf";
+        let title = cfg.variant.boot_entry_title();
         default_entry = entry_name.to_string();
 
         let mut entry = format!("title   {title}\nlinux   /{vmlinuz}\n");
@@ -1731,8 +1681,7 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
 
     if cfg.variant.is_server() {
         println!(
-            "    server boot default: {default_entry} (cpu family={}, kernel={})",
-            sel.family_label,
+            "    server boot default: {default_entry} (kernel={})",
             detect::KERNEL_PKG
         );
     }
@@ -2021,12 +1970,6 @@ exit $rc
 }
 
 fn enable_services(cfg: &Config) -> Result<()> {
-    // Never enable host docker/containerd/nerdctl (removed from package lists).
-    cmd::arch_chroot_ok(
-        &cfg.mnt,
-        "systemctl disable --now docker.service docker.socket containerd.service 2>/dev/null || true; \
-         systemctl mask docker.service docker.socket containerd.service 2>/dev/null || true",
-    );
     if cfg.variant.is_server() {
         // Fatal on a headless box — reachability, network, DNS, perimeter, workload
         // runtime: a host that boots without any one of these is unreachable, unrouted
@@ -2258,31 +2201,6 @@ Login shell default: /bin/bash\nVariant: {}\n",
             cfg.variant
         ),
     )?;
-    let mut copy_files = vec!["README-INSTALL.txt", "packages-target.txt", "machine.env"];
-    if cfg.variant.is_server() {
-        copy_files.extend_from_slice(&[
-            "packages-target-server.txt",
-            "machine-server.env",
-            "sysctl-server.conf",
-        ]);
-    }
-    for f in copy_files {
-        let src = Path::new("/etc/appsynergy").join(f);
-        if src.is_file() {
-            let _ = fs::copy(&src, cfg.mnt.join("etc/appsynergy").join(f));
-        }
-    }
-    if !cfg.variant.is_server() {
-        cmd::arch_chroot_ok(
-            &cfg.mnt,
-            r#"
-if command -v bazelisk >/dev/null 2>&1; then
-  ln -sfn /usr/bin/bazelisk /usr/local/bin/bazelisk
-  [[ -e /usr/local/bin/bazel ]] || ln -sfn /usr/bin/bazelisk /usr/local/bin/bazel
-fi
-"#,
-        );
-    }
     let tpm_enrolled = cfg.mnt.join("etc/appsynergy/tpm-enrolled").is_file();
     let product = cfg.variant.product_name();
     let motd = if cfg.variant.is_server() {

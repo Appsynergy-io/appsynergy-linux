@@ -1,7 +1,7 @@
 # Packages pacstrap'd for AppSynergy **server** variant (OVH / tunnels).
 # Keep list + OS docs: kernel/docs/SERVER-OS.md (in the appsynergy-linux checkout)
 # No desktop environment, no browsers, no Wi-Fi stack, no GPU media.
-# Kernel: appsynergy-linux via --kernel=local (default). One package, every metal.
+# Kernel: appsynergy-linux from local pkgs. One package, every metal.
 # NOT keep: agent/pets/console/RAUC (appsynergy-linux apps).
 
 # --- base / boot / disk ---

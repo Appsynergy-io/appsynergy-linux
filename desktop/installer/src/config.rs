@@ -67,21 +67,6 @@ impl Variant {
     }
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
-pub enum KernelMode {
-    Local,
-    Repo,
-}
-
-impl std::fmt::Display for KernelMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            KernelMode::Local => write!(f, "local"),
-            KernelMode::Repo => write!(f, "repo"),
-        }
-    }
-}
-
 #[derive(Debug, Parser)]
 #[command(
     name = "appsynergy-install",
@@ -107,9 +92,6 @@ pub struct Cli {
     /// Example: /dev/nvme0n1,/dev/nvme1n1
     #[arg(long)]
     pub disks: Option<String>,
-
-    #[arg(long, env = "APPSYNERGY_KERNEL", value_enum)]
-    pub kernel: Option<KernelMode>,
 
     #[arg(long, short = 'y')]
     pub yes: bool,
@@ -153,7 +135,6 @@ pub struct Config {
     pub locale: String,
     pub keymap: String,
     pub efi_size: String,
-    pub kernel: KernelMode,
     pub yes: bool,
     pub password: Option<Vec<u8>>,
     pub mnt: PathBuf,
@@ -217,19 +198,7 @@ impl Config {
             disks
         };
 
-        let layout =
-            disk::plan_layout(&disks, &efi_size, &cryptname, variant.btrfs_label(), false)?;
-
-        let kernel = cli.kernel.unwrap_or_else(|| {
-            match env
-                .get("APPSYNERGY_KERNEL")
-                .map(|s| s.as_str())
-                .unwrap_or("local")
-            {
-                "repo" => KernelMode::Repo,
-                _ => KernelMode::Local,
-            }
-        });
+        let layout = disk::plan_layout(&disks, &efi_size, &cryptname, variant.btrfs_label())?;
 
         let hostname = cli
             .hostname
@@ -362,7 +331,6 @@ impl Config {
             locale,
             keymap,
             efi_size,
-            kernel,
             yes: cli.yes,
             password,
             mnt: PathBuf::from(MNT),

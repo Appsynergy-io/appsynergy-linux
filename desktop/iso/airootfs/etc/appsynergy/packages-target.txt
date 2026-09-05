@@ -1,6 +1,5 @@
 # Packages pacstrap'd onto the machine by appsynergy-install.
-# One name per line. Kernel: local igpu pkgs via --kernel=local (default)
-# or add linux/linux-headers when --kernel=repo.
+# One name per line. Kernel is always local appsynergy-linux (not pacstrap'd).
 
 # --- base / boot / disk ---
 base
@@ -105,11 +104,7 @@ noto-fonts-emoji
 ttf-liberation
 ttf-dejavu
 ttf-meslo-nerd
-# Browsers: no Firefox. Brave shipped as local pkg under /opt/appsynergy/pkgs
-# (pacman -U at end of install). Thorium is AUR — drop
-# thorium-browser-bin-*.pkg.tar.zst into that pkgs dir before build, or:
-#   paru -S thorium-browser-bin
-# after first boot. Future: custom AppSynergy browser replaces both.
+# Browsers: none in the default OS image. Install after first boot.
 
 # --- general dev ---
 git
