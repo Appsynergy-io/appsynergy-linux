@@ -98,6 +98,11 @@ fn try_main() -> Result<()> {
     if !cfg.pkgs_file.is_file() {
         bail!("missing package list: {}", cfg.pkgs_file.display());
     }
+    if let Some(ref extra) = cfg.extra_pkgs_file {
+        if !extra.is_file() {
+            bail!("missing desktop --dev overlay: {}", extra.display());
+        }
+    }
     // The target's [appsynergy] section and the key that verifies it both ship in
     // packages, so a payload/ISO built without them can only end in an unusable or
     // untrusted repo. Fail here, before partitioning — never mid-install on a wiped disk.
@@ -267,6 +272,9 @@ fn banner(cfg: &Config) {
         );
     }
     println!("  packages:   {}", cfg.pkgs_file.display());
+    if let Some(ref extra) = cfg.extra_pkgs_file {
+        println!("  overlay:    {}", extra.display());
+    }
     println!(
         "  password:   {}",
         if cfg.password.is_some() {
@@ -685,7 +693,10 @@ fn compare_esp_boot_images(primary: &Path, secondary: &Path) -> Result<Vec<Strin
 }
 
 fn pacstrap_packages(cfg: &Config) -> Result<()> {
-    let pkgs = config::package_list(&cfg.pkgs_file)?;
+    let mut pkgs = config::package_list(&cfg.pkgs_file)?;
+    if let Some(ref extra) = cfg.extra_pkgs_file {
+        pkgs.extend(config::package_list(extra)?);
+    }
     let _ = cmd::run("pacstrap", "appsynergy-sanitize-mirrors", &[]);
     let mnt = cfg.mnt.to_string_lossy().into_owned();
     let mut cmd_args = vec!["-K".to_string(), mnt];

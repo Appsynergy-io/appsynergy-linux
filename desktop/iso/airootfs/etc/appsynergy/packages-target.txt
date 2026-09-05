@@ -1,5 +1,7 @@
-# Packages pacstrap'd onto the machine by appsynergy-install.
-# One name per line. Kernel is always local appsynergy-linux (not pacstrap'd).
+# Packages pacstrap'd onto a desktop install. One name per line.
+# Kernel is always local appsynergy-linux (not pacstrap'd).
+# Toolchain (bazel, jdk, qemu, go, node, rustup, …) lives in
+# packages-target-desktop-dev.txt and is applied only with --dev.
 
 # --- base / boot / disk ---
 base
@@ -28,7 +30,6 @@ bluez-utils
 bluez-obex
 bluez-hid2hci
 openssh
-ufw
 nftables
 
 # --- console ---
@@ -49,6 +50,14 @@ bash-completion
 fish
 bind
 fwupd
+git
+python
+ripgrep
+tmux
+btop
+vim
+nano
+lsof
 
 # --- GPU / media (Intel only) ---
 intel-media-driver
@@ -82,12 +91,10 @@ spectacle
 kate
 ark
 kscreenlocker
-# KWallet unlock at SDDM + manager UI + signon backend for KDE accounts
 kwallet-pam
 kwalletmanager
 signon-kwallet-extension
 kaccounts-integration
-# FIDO2 / security keys + hybrid passkeys (Brave/Chromium + bluez Experimental)
 libfido2
 xdg-desktop-portal
 xdg-desktop-portal-kde
@@ -104,85 +111,13 @@ noto-fonts-emoji
 ttf-liberation
 ttf-dejavu
 ttf-meslo-nerd
-# Browsers: none in the default OS image. Install after first boot.
 
-# --- general dev ---
-git
-github-cli
-# no container runtime on desktop (no docker / k3s / containerd / nerdctl)
-rustup
-go
-nodejs
-npm
-pnpm
-python
-python-pip
-python-pipx
-code
-gdb
-perf
-ripgrep
-tmux
-btop
-vim
-nano
-lsof
-strace
-qemu-base
-
-# --- Bazel / appsynergy-rs / NativeLink worker host ---
-# .bazelversion pins 8.3.1 — install bazelisk (downloads that version).
-# Do NOT pin distro `bazel` 9.x as the only binary; bazelisk honors .bazelversion.
-bazelisk
-jdk17-openjdk
-java-runtime-common
-java-environment-common
-# Host CC toolchain (worker farm + --config=local). base-devel already
-# pulls gcc/binutils/make/pkgconf; list critical names so a partial
-# strip cannot drop them.
-gcc
-binutils
-glibc
-linux-api-headers
-pkgconf
-openssl
-# C/C++ extras used by crate build scripts (ring, openssl-sys, etc.)
-clang
-llvm
-compiler-rt
-lld
-cmake
-ninja
-nasm
-perl
-# Optional faster linker for cargo path (not required by farm gcc toolchain)
-mold
-# Proto (some rules / tools on host)
-protobuf
-# musl release path (scripts/release.sh, static agent)
-musl
-kernel-headers-musl
-# sandbox / FS helpers Bazel and containers use
-fuse3
-fuse-overlayfs
-
-# --- intentionally NOT here (restore / install later) ---
-# nativelink binary → /opt/nativelink from backup (47G tree optional)
-# ~/bin/bazel farm wrapper (WoL tether) → restore from home backup
-# cuda, mingw-w64-gcc, NVIDIA stack, firefox
-#
-# NEVER ship:
-# - firefox (Brave + Thorium only; own browser later)
-# - hyfetch, lolcat, pride wallpapers, cachyos-*-theme*, cachyos-wallpapers
-# - archlinux.gay (mirror hostname — stripped by appsynergy-sanitize-mirrors)
-# - age-verification apps / browser experiment stubs
+# --- intentionally NOT here ---
+# ufw (nftables only)
+# docker k3s containerd nerdctl
+# firefox brave thorium
+# bazelisk jdk qemu go nodejs npm pnpm code rustup musl — see packages-target-desktop-dev.txt
 
 # --- AppSynergy identity (NOT pacstrap'd) ---
-# Live /etc/pacman.conf is stock Arch (no [appsynergy], conf.d unused).
-# appsynergy-install installs these after pacstrap via:
-#   1) public repo once [appsynergy]+XferCommand is registered, else
-#   2) local /opt/appsynergy/pkgs/appsynergy-*.pkg.tar.zst
-# Desktop variant gets all four, in one transaction:
-#   appsynergy-mirrorlist  appsynergy-branding        (identity, both variants)
-#   appsynergy-branding-desktop  appsynergy-wallpapers (graphical, desktop only)
-# Do not list them here — pacstrap would fail looking in core/extra only.
+# appsynergy-install installs these after pacstrap from [appsynergy] or local pkgs.
+# Desktop: appsynergy-mirrorlist, appsynergy-branding, appsynergy-branding-desktop, appsynergy-wallpapers.

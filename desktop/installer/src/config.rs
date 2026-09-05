@@ -13,6 +13,7 @@ pub const CONF: &str = "/etc/appsynergy/machine.env";
 pub const CONF_SERVER: &str = "/etc/appsynergy/machine-server.env";
 pub const PKGS_DESKTOP: &str = "/etc/appsynergy/packages-target.txt";
 pub const PKGS_SERVER: &str = "/etc/appsynergy/packages-target-server.txt";
+pub const PKGS_DESKTOP_DEV: &str = "/etc/appsynergy/packages-target-desktop-dev.txt";
 pub const LOCAL_PKGDIR: &str = "/opt/appsynergy/pkgs";
 pub const MNT: &str = "/mnt/appsynergy";
 // The [appsynergy] Server URL is package-owned (appsynergy-mirrorlist); the
@@ -116,6 +117,10 @@ pub struct Cli {
 
     #[arg(long, env = "APPSYNERGY_SSH_PUBKEY")]
     pub ssh_pubkey: Option<PathBuf>,
+
+    /// Desktop only: also pacstrap packages-target-desktop-dev.txt (same ISO).
+    #[arg(long = "dev", env = "APPSYNERGY_DESKTOP_DEV", action = clap::ArgAction::SetTrue)]
+    pub desktop_dev: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +145,8 @@ pub struct Config {
     pub mnt: PathBuf,
     pub local_pkgdir: PathBuf,
     pub pkgs_file: PathBuf,
+    /// Desktop `--dev` overlay on the same ISO. None for server / default desktop.
+    pub extra_pkgs_file: Option<PathBuf>,
     pub tpm: bool,
     pub tpm_required: bool,
     pub tpm_pcrs: String,
@@ -316,6 +323,15 @@ impl Config {
             }
         };
 
+        if cli.desktop_dev && variant.is_server() {
+            bail!("--dev is desktop-only (toolchain overlay on the same ISO)");
+        }
+        let extra_pkgs_file = if cli.desktop_dev {
+            Some(PathBuf::from(PKGS_DESKTOP_DEV))
+        } else {
+            None
+        };
+
         let primary = layout.primary().clone();
         Ok(Self {
             variant,
@@ -336,6 +352,7 @@ impl Config {
             mnt: PathBuf::from(MNT),
             local_pkgdir: PathBuf::from(LOCAL_PKGDIR),
             pkgs_file: PathBuf::from(variant.pkgs_path()),
+            extra_pkgs_file,
             tpm,
             tpm_required,
             tpm_pcrs,

@@ -437,6 +437,74 @@ fn k3s_server_only_no_docker_stack() {
     }
 }
 
+fn pacstrap_names(text: &str) -> Vec<&str> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
+#[test]
+fn desktop_os_list_is_not_a_build_host() {
+    let desk = pacstrap_names(include_str!(
+        "../../iso/airootfs/etc/appsynergy/packages-target.txt"
+    ));
+    assert!(desk.contains(&"plasma-desktop"));
+    assert!(desk.contains(&"nftables"));
+    assert!(!desk.contains(&"ufw"));
+    for forbidden in [
+        "bazelisk",
+        "jdk17-openjdk",
+        "qemu-base",
+        "go",
+        "nodejs",
+        "code",
+        "github-cli",
+        "rustup",
+        "musl",
+    ] {
+        assert!(
+            !desk.contains(&forbidden),
+            "desktop OS list still pacstraps {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn desktop_dev_overlay_is_opt_in_on_the_same_iso() {
+    let overlay = pacstrap_names(include_str!(
+        "../../iso/airootfs/etc/appsynergy/packages-target-desktop-dev.txt"
+    ));
+    assert!(overlay.contains(&"bazelisk"));
+    assert!(overlay.contains(&"qemu-base"));
+    let src = include_str!("config.rs");
+    assert!(src.contains("PKGS_DESKTOP_DEV"));
+    assert!(src.contains("desktop_dev"));
+}
+
+#[test]
+fn server_list_drops_appliance_cutover() {
+    let srv = pacstrap_names(include_str!(
+        "../../iso/airootfs/etc/appsynergy/packages-target-server.txt"
+    ));
+    assert!(srv.contains(&"nftables"));
+    assert!(srv.contains(&"dropbear"));
+    assert!(srv.contains(&"pahole"));
+    for forbidden in [
+        "sqlite",
+        "cosign",
+        "amd-ucode",
+        "htop",
+        "ufw",
+        "plasma-desktop",
+    ] {
+        assert!(
+            !srv.contains(&forbidden),
+            "server list still pacstraps {forbidden}"
+        );
+    }
+}
+
 #[test]
 fn install_problems_password_file_strips_newline_not_content() {
     // #3: batch keyfile with trailing newline
