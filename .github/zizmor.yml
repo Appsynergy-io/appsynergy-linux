@@ -4,5 +4,4 @@ rules:
     # userland and pacman -Syu runs on every job. ci/gha/Containerfile is the
     # pin to publish when that churn becomes a problem; drop this ignore then.
     ignore:
-      - check.yml
-      - packages.yml
+      - ci.yml

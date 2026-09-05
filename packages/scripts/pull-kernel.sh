@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 # Copy appsynergy-linux{,-headers} from the published Release into staging.
-# packages.yml runs this before build-repo.sh so repo-add indexes a kernel.
+# ci.yml's publish job runs this before build-repo.sh so repo-add indexes a kernel.
 # New pkgver-pkgrel files the sandbox uploaded (not yet in the db) are pulled
 # too — build-repo.sh keeps the newest and drops superseded.
 #

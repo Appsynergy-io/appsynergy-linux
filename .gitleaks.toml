@@ -1,6 +1,6 @@
 # gitleaks allowlist. The only hits in this tree are PGP key fingerprints:
 # the CachyOS source-signing keys in kernel/upstream/PIN and the AppSynergy
-# packaging key in packages.yml. Fingerprints are public by definition.
+# packaging key in ci.yml. Fingerprints are public by definition.
 [extend]
 useDefault = true
 

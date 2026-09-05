@@ -1,5 +1,5 @@
 # Optional GitHub Actions image for appsynergy-linux.
-# First iteration of check.yml / packages.yml uses archlinux:latest and pacman -Syu
+# ci.yml uses archlinux:latest and pacman -Syu
 # each run. Pin this image later as ghcr.io/appsynergy-io/appsynergy-linux-ci:<tag>.
 #
 # Jobs must run as uid 1000 `build`: makepkg refuses root.

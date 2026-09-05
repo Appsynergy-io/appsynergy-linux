@@ -83,6 +83,25 @@ else
 fi
 rm -f "$pub_db"
 
+# Idempotent: ci.yml runs this on every push to main. When the published db
+# already names exactly these files with exactly these sums there is nothing to
+# ship — repo-add output differs byte-for-byte every build (tar mtimes), so
+# compare what the db says, not the db. Skipping here also stops a dated
+# snapshot landing on the Release for a docs-only merge.
+if ((${#PUB_SUM[@]})); then
+  same=1
+  while read -r n s; do
+    [[ "${PUB_SUM[$n]:-}" == "$s" ]] || { same=0; break; }
+  done < <(tar xzOf "$REPO/appsynergy.db.tar.gz" --wildcards '*/desc' 2>/dev/null | awk '
+      /^%FILENAME%/  {getline; f=$0}
+      /^%SHA256SUM%/ {getline; print f, $0}')
+  ((${#want[@]} == ${#PUB_SUM[@]})) || same=0
+  if ((same)); then
+    echo "==> published db already describes these ${#want[@]} package(s) — nothing to publish"
+    exec "$ROOT/scripts/verify-repo.sh"
+  fi
+fi
+
 if ! gh release view "$TAG" --repo "$GH" >/dev/null 2>&1; then
   gh release create "$TAG" --repo "$GH" --latest=false \
     --title "pacman $TAG" \
