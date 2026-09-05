@@ -70,25 +70,45 @@ done
 skipped=$(( ${#all[@]} - ${#pkgs[@]} - ${#dbs[@]} ))
 ((skipped > 0)) && echo "  ($skipped file(s) in staging not indexed by the db — not published)"
 
-declare -A PUB_SUM
+declare -A PUB_SUM PUB_NAME
 pub_db=$(mktemp)
 if curl -fsSL -o "$pub_db" "$BASE/appsynergy.db.tar.gz" 2>/dev/null; then
   while read -r n s; do PUB_SUM["$n"]="$s"; done < <(
     tar xzOf "$pub_db" --wildcards '*/desc' 2>/dev/null | awk '
       /^%FILENAME%/  {getline; f=$0}
       /^%SHA256SUM%/ {getline; print f, $0}')
+  while IFS= read -r n; do PUB_NAME["$n"]=1; done < <(
+    tar xzOf "$pub_db" --wildcards '*/desc' 2>/dev/null | awk '/^%NAME%/{getline; print}')
   echo "  (published db describes ${#PUB_SUM[@]} package(s) to compare against)"
 else
   echo "  (no published db yet — publishing everything)"
 fi
 rm -f "$pub_db"
 
+# Never silently drop a package. A staging dir built without pull-kernel.sh
+# indexes six packages, and publishing that db removes appsynergy-linux from
+# every client's view until the next publish — it happened once, from a
+# workstation. Retiring a package is deliberate: ALLOW_DROP=1.
+declare -A LOCAL_NAME
+while IFS= read -r n; do LOCAL_NAME["$n"]=1; done < <(
+  tar xzOf "$REPO/appsynergy.db.tar.gz" --wildcards '*/desc' 2>/dev/null | awk '/^%NAME%/{getline; print}')
+dropped=()
+for n in "${!PUB_NAME[@]}"; do [[ -n "${LOCAL_NAME[$n]:-}" ]] || dropped+=("$n"); done
+if ((${#dropped[@]})) && [[ "${ALLOW_DROP:-0}" != "1" ]]; then
+  echo "FAIL: staging db drops package(s) the published db names:"
+  printf '  %s\n' "${dropped[@]}"
+  echo "Run pull-kernel.sh / rebuild the missing package, or ALLOW_DROP=1 to retire it."
+  exit 1
+fi
+
 # Idempotent: ci.yml runs this on every push to main. When the published db
 # already names exactly these files with exactly these sums there is nothing to
 # ship — repo-add output differs byte-for-byte every build (tar mtimes), so
 # compare what the db says, not the db. Skipping here also stops a dated
 # snapshot landing on the Release for a docs-only merge.
-if ((${#PUB_SUM[@]})); then
+# FORCE_PUBLISH=1 skips this — for a published db that is wrong or stale
+# (GitHub's asset CDN can serve the previous db for minutes after a clobber).
+if ((${#PUB_SUM[@]})) && [[ "${FORCE_PUBLISH:-0}" != "1" ]]; then
   same=1
   while read -r n s; do
     [[ "${PUB_SUM[$n]:-}" == "$s" ]] || { same=0; break; }

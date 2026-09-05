@@ -28,6 +28,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Caches restore on every run and save on main only, so a PR never
+      # writes a cache a later PR restores. A miss costs minutes, never
+      # correctness: pacman verifies every package signature, rustup every
+      # toolchain hash, cargo every lockfile checksum.
+      - name: cache week
+        id: week
+        run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: restore pacman cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-${{ steps.week.outputs.week }}
+          restore-keys: pacman-
+      - name: restore rust caches
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /opt/rustup
+            /home/build/.cargo/registry
+            desktop/installer/target
+          key: rust-${{ runner.os }}-${{ hashFiles('desktop/installer/rust-toolchain.toml', 'desktop/installer/Cargo.lock') }}
       - name: deps
         run: |
           set -euo pipefail
@@ -52,8 +73,24 @@ jobs:
           set -euo pipefail
           chown -R build:build "$GITHUB_WORKSPACE"
           install -d -o build -g build /home/build/.cargo
+          chown -R build:build /home/build   # restored registry cache arrives root-owned
           runuser -u build -- env RUSTUP_HOME=/opt/rustup CARGO_HOME=/home/build/.cargo \
             ./scripts/check.sh
+      - name: save pacman cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-${{ steps.week.outputs.week }}
+      - name: save rust caches
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /opt/rustup
+            /home/build/.cargo/registry
+            desktop/installer/target
+          key: rust-${{ runner.os }}-${{ hashFiles('desktop/installer/rust-toolchain.toml', 'desktop/installer/Cargo.lock') }}
 
   publish:
     name: publish
@@ -72,6 +109,15 @@ jobs:
     container:
       image: archlinux:latest
     steps:
+      - name: cache week
+        id: week
+        run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: restore pacman cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-${{ steps.week.outputs.week }}
+          restore-keys: pacman-
       - name: deps
         run: |
           set -euo pipefail
@@ -81,6 +127,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The kernel is ~200MB per publish and changes only when the sandbox
+      # uploads a new one. Key on the Release's own asset list; pull-kernel.sh
+      # skips any file whose size matches what the Release reports.
+      - name: kernel asset key
+        id: kernel
+        run: |
+          set -euo pipefail
+          base=$(sed -n '1p' packages/pacman/SERVER | tr -d '[:space:]')
+          [[ "$base" =~ ^https://github.com/([^/]+)/([^/]+)/releases/download/([^/]+)$ ]]
+          key=$(curl -fsSL "https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/releases/tags/${BASH_REMATCH[3]}" \
+            | awk -F'"' '/"name":/ && $4 ~ /^appsynergy-linux.*\.pkg\.tar\.zst(\.sig)?$/ { n=$4 }
+                         n && /"size":/ { gsub(/[^0-9]/, "", $3); print n, $3; n="" }' \
+            | sha256sum | cut -c1-16)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      - name: cache kernel assets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/repo/x86_64/appsynergy-linux-*
+          key: kernel-${{ steps.kernel.outputs.key }}
       - name: import signing key
         env:
           APPSYNERGY_GPG_KEY: ${{ secrets.APPSYNERGY_GPG_KEY }}

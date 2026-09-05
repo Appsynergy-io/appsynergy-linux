@@ -39,16 +39,25 @@ if [[ "$code" != "200" ]]; then
   exit 1
 fi
 
+# name<TAB>size per asset. Size is what lets a cached copy (ci.yml restores
+# staging kernels from actions/cache) skip a 200MB download: same name, same
+# byte count as the Release reports means the same asset.
 mapfile -t files < <(awk -F'"' '
-  /"name":/ && $4 ~ /^appsynergy-linux.*\.pkg\.tar\.zst(\.sig)?$/ { print $4 }
+  /"name":/ && $4 ~ /^appsynergy-linux.*\.pkg\.tar\.zst(\.sig)?$/ { n=$4 }
+  n && /"size":/ { gsub(/[^0-9]/, "", $3); print n "\t" $3; n="" }
 ' "$tmp")
 ((${#files[@]})) || { echo "FAIL: Release $OWNER/$GHREPO@$TAG has no appsynergy-linux assets"; exit 1; }
 
 echo "==> pulling kernel assets from $BASE"
 got_pkg=0
-for name in "${files[@]}"; do
-  echo "  $name"
-  curl -fsSL "$BASE/$name" -o "$REPO/$name"
+for entry in "${files[@]}"; do
+  name="${entry%%$'\t'*}"; size="${entry##*$'\t'}"
+  if [[ -f "$REPO/$name" && "$(stat -c %s "$REPO/$name")" == "$size" ]]; then
+    echo "  $name (cached, $size bytes)"
+  else
+    echo "  $name"
+    curl -fsSL "$BASE/$name" -o "$REPO/$name"
+  fi
   if [[ "$name" == appsynergy-linux-[0-9]*.pkg.tar.zst ]]; then
     got_pkg=1
   fi
