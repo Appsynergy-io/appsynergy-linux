@@ -12,7 +12,7 @@ Destructive full-disk installer for the live USB. Built into the ISO by
 | TPM | auto-enroll when `/dev/tpm*` present (`--no-tpm` to skip) | same |
 | Network | NetworkManager + iwd | systemd-networkd + resolved |
 | DE | Plasma / SDDM | none |
-| Firewall | (ufw in pkg list) | nftables seed + sysctl |
+| Firewall | nftables | nftables seed + sysctl |
 
 ## Normal use (guided)
 

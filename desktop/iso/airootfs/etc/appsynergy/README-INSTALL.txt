@@ -36,11 +36,10 @@ Install:
   sudo appsynergy-install
   sudo appsynergy-install --variant server --disk /dev/sda --yes \
     --password-file /tmp/appsynergy-key --ssh-pubkey /root/id_ed25519.pub
-  # --kernel repo  → stock Arch linux
 
 After reboot:
-  - Desktop: unlock LUKS (TPM or passphrase) → login imma
-  - Server: TPM or ssh root@ip in initrd for passphrase → SSH root/imma with key
+  - Desktop: unlock LUKS (TPM or passphrase) → login appsynergy
+  - Server: TPM or ssh root@ip in initrd for passphrase → SSH root/appsynergy with key
   - See /etc/appsynergy/TPM.txt and (server) UNLOCK.txt
 
 Branding: os-release + ASCII banner. Never: Firefox, Cachy themes, archlinux.gay.

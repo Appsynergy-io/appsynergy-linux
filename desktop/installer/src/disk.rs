@@ -138,7 +138,6 @@ pub fn plan_layout(
     efi_size: &str,
     single_cryptname: &str,
     label: &str,
-    force_raid1: bool,
 ) -> Result<DiskLayout> {
     if disks.is_empty() {
         bail!("at least one disk required");
@@ -150,10 +149,7 @@ pub fn plan_layout(
         bail!("both disks are the same path: {}", disks[0].display());
     }
 
-    let raid1 = disks.len() == 2 || force_raid1;
-    if force_raid1 && disks.len() < 2 {
-        bail!("RAID1 requires two disks");
-    }
+    let raid1 = disks.len() == 2;
 
     let mut members = Vec::new();
     for (i, disk) in disks.iter().enumerate() {
@@ -376,7 +372,7 @@ mod tests {
     #[test]
     fn dual_nvme_raid1_layout() {
         let disks = parse_disks_list("/dev/nvme0n1,/dev/nvme1n1").unwrap();
-        let lay = plan_layout(&disks, "1G", "cryptroot", "appsynergy-server", false).unwrap();
+        let lay = plan_layout(&disks, "1G", "cryptroot", "appsynergy-server").unwrap();
         assert!(lay.raid1);
         assert_eq!(lay.members.len(), 2);
         assert_eq!(lay.members[0].cryptname, "crypt0");
@@ -395,7 +391,7 @@ mod tests {
     #[test]
     fn single_disk_no_raid() {
         let disks = vec![PathBuf::from("/dev/nvme0n1")];
-        let lay = plan_layout(&disks, "2G", "cryptroot", "appsynergy", false).unwrap();
+        let lay = plan_layout(&disks, "2G", "cryptroot", "appsynergy").unwrap();
         assert!(!lay.raid1);
         assert_eq!(lay.primary().cryptname, "cryptroot");
     }
@@ -410,7 +406,7 @@ mod tests {
     #[test]
     fn reject_three_disks() {
         let disks = parse_disks_list("/dev/nvme0n1,/dev/nvme1n1,/dev/nvme2n1").unwrap();
-        assert!(plan_layout(&disks, "1G", "cryptroot", "x", false).is_err());
+        assert!(plan_layout(&disks, "1G", "cryptroot", "x").is_err());
     }
 
     #[test]

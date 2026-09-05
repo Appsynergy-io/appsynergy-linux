@@ -62,11 +62,10 @@ mkdir -p "$DST_PKG"
 if compgen -G "$PKG_REPO/appsynergy-linux-[0-9]*.pkg.tar.zst" > /dev/null; then
   cp -a "$PKG_REPO"/appsynergy-linux-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
   cp -a "$PKG_REPO"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst "$DST_PKG/" 2>/dev/null || true
-  # Retired per-CPU and desktop kernels must not ride along: the installer would
-  # find them as a fallback and quietly install a kernel nobody builds any more.
+  # Retired per-CPU kernels must not ride along.
   rm -f "$DST_PKG"/linux-appsynergy-*.pkg.tar.zst "$DST_PKG"/linux-cachyos-igpu-*.pkg.tar.zst
 else
-  echo "WARN: no appsynergy-linux package in $PKG_REPO; run packages/scripts/fetch-repo.sh or use --kernel repo"
+  echo "WARN: no appsynergy-linux package in $PKG_REPO; run packages/scripts/fetch-repo.sh"
 fi
 # No separate server kernel: appsynergy-linux is both variants. The per-metal
 # skylake/tigerlake packages are retired — see kernel/CLAUDE.md.
@@ -110,17 +109,6 @@ rm -f "$PROFILE/airootfs/usr/local/bin/appsynergy-install.bin"
 echo "Local kernel/branding pkgs:"
 ls -lh "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
 
-# Browsers (no Firefox): pull brave from pacman cache if present
-if compgen -G /var/cache/pacman/pkg/brave-bin-*.pkg.tar.zst > /dev/null; then
-  cp -a /var/cache/pacman/pkg/brave-bin-*.pkg.tar.zst "$DST_PKG/"
-fi
-# Thorium is AUR — drop a built package here if you have one:
-#   cp thorium-browser-bin-*.pkg.tar.zst iso/airootfs/opt/appsynergy/pkgs/
-if compgen -G /var/cache/pacman/pkg/thorium-browser-bin-*.pkg.tar.zst > /dev/null; then
-  cp -a /var/cache/pacman/pkg/thorium-browser-bin-*.pkg.tar.zst "$DST_PKG/"
-fi
-echo "Local browser pkgs in image:"
-ls -lh "$DST_PKG"/brave-bin-* "$DST_PKG"/thorium-browser-bin-* 2>/dev/null || echo "  (brave/thorium none yet)"
 # Fail if kernel or branding missing when local kernel is expected
 if ! compgen -G "$DST_PKG"/appsynergy-linux-[0-9]*.pkg.tar.zst > /dev/null; then
   echo "ERROR: no appsynergy-linux .pkg.tar.zst in $DST_PKG — aborting"

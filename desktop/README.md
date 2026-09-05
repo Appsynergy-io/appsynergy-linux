@@ -53,8 +53,7 @@ sudo ./scripts/write-usb.sh /dev/sdX
 3. `sudo appsynergy-install` (**Rust** installer; source in `installer/`)  
    - **`--variant desktop|server`** (default desktop; env `APPSYNERGY_VARIANT`)  
    - Desktop disk default: **`/dev/nvme0n1`**; server default: **`/dev/sda`**  
-   - Kernel local pkgs: `appsynergy-linux` + `appsynergy-linux-headers`, both variants  
-   - Or: `--kernel repo` for stock Arch `linux`  
+   - Kernel: `appsynergy-linux` + `appsynergy-linux-headers`, both variants (CPU without x86-64-v3 is refused before any disk is touched)  
    - Non-interactive: `--yes --password-file /path/to/key`  
    - **TPM enroll** when TPM present (`--tpm` / `--no-tpm` / `--tpm-pcrs`)  
    - **Server SSH**: `--ssh-pubkey /path/to/id_ed25519.pub` → root key-only + **initrd dropbear unlock** if TPM fails  

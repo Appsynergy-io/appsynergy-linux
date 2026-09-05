@@ -377,13 +377,12 @@ pub fn run(cli: &mut Cli) -> Result<()> {
         println!("  Disk:     {} — NUKE existing", d.display());
     }
     println!(
-        "  CPU:      {} ({})",
+        "  CPU:      {}",
         if ksel.cpu_model.is_empty() {
             "unknown"
         } else {
             ksel.cpu_model.as_str()
-        },
-        ksel.family_label
+        }
     );
     println!(
         "  Kernel:   {}",
