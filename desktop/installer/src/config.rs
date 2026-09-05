@@ -244,7 +244,7 @@ impl Config {
         let user = cli
             .user
             .or_else(|| env.get("APPSYNERGY_USER").cloned())
-            .unwrap_or_else(|| "imma".into());
+            .unwrap_or_else(|| "appsynergy".into());
         let timezone = env.get("APPSYNERGY_TIMEZONE").cloned().unwrap_or_else(|| {
             if variant.is_server() {
                 "UTC".into()

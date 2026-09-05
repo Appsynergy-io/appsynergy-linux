@@ -1,6 +1,0 @@
-kvm_intel             475136  0
-kvm                  1556480  1 kvm_intel
-irqbypass              16384  1 kvm
-vfio_iommu_type1       53248  0
-vfio                   81920  1 vfio_iommu_type1
-iommufd               163840  1 vfio

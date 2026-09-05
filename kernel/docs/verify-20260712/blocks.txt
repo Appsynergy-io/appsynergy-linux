@@ -1,5 +1,0 @@
-dm-0
-loop0
-loop1
-nvme0n1
-zram0

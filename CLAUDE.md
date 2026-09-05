@@ -23,7 +23,6 @@ packages/scripts/verify-repo.sh                        # assert published == sta
 | `desktop/installer/` | `appsynergy-install` (Rust); `src/detect.rs` refuses CPUs the one v3 kernel cannot boot |
 | `desktop/scripts/` | ISO build, rescue payload staging, USB write |
 | `kernel/upstream/PIN` | the whole kernel contract — AppSynergy ships no Kconfig of its own |
-| `kernel/bench/` | committed benchmark runs |
 | `packages/pkgbuilds/` | PKGBUILDs — `appsynergy-mirrorlist` and the identity split below; **no kernel** |
 | `desktop/brand-review/` | wallpaper/icon **candidates** for review only; never read at runtime |
 | `packages/pacman/SERVER` | the published pacman Server URL — one line, the contract |
