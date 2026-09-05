@@ -6,6 +6,7 @@ Each real publish tags `published/<stamp>` on its commit; the same stamp names t
 
 | Package | Version | Change |
 |---------|---------|--------|
+| `appsynergy-linux` | 7.2.3-1 | Pin to CachyOS `linux-cachyos-server` `bf83c8e`. `uname -r` = `7.2.3-1-appsynergy-linux`. Same ThinLTO server recipe, one package for every machine. 7.1.6-1 stays on the Release for rollback. |
 | `appsynergy-mirrorlist` | 1-8 | `[appsynergy]` Server is the GitHub Release `repo-x86_64`; drops `[sdx]`. Existing hosts cannot discover this from the old origin — one-shot `pacman -U` of this package, then `pacman -Sy` |
 | `appsynergy-branding` | 3-4 | os-release URLs point at `github.com/Appsynergy-io/appsynergy-linux` |
 | `appsynergy-branding-desktop`, `appsynergy-wallpapers`, `appsynergy-ca-certificates` | 1-4 | `url=` points at the GitHub repo; no payload change |

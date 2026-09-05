@@ -8,15 +8,15 @@
 # unmodified. The only AppSynergy input is the name.
 
 UPSTREAM_REPO=https://github.com/CachyOS/linux-cachyos.git
-UPSTREAM_COMMIT=12d9925
+UPSTREAM_COMMIT=bf83c8e
 UPSTREAM_FLAVOR=linux-cachyos-server
-PKGVER=7.1.6
+PKGVER=7.2.3
 PKGREL=1
 
 # What the build must produce. build-appsynergy-linux.sh refuses to stage
 # anything that does not match, and check.sh asserts these strings appear here.
 PKGBASE=appsynergy-linux
-KERNEL_UNAME=7.1.6-1-appsynergy-linux
+KERNEL_UNAME=7.2.3-1-appsynergy-linux
 
 # Build options, set explicitly by the build script — never inherited. These are
 # upstream's own values for the published x86_64_v3 ThinLTO server packages,
