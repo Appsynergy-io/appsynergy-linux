@@ -215,7 +215,9 @@ workflows() {
   mapfile -t wf < <(find "$ROOT/.github/workflows" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
   [[ ${#wf[@]} -eq 1 && "$(basename "${wf[0]}")" == ci.yml ]] || {
     echo "exactly one workflow, .github/workflows/ci.yml, is allowed; found:"; printf '  %s\n' "${wf[@]}"; return 1; }
-  actionlint && zizmor --no-progress --config "$ROOT/.github/zizmor.yml" "$ROOT/.github/workflows"
+  # Explicit paths: actionlint's project autodetection fails inside the CI
+  # container ("no project was found in any parent directories").
+  actionlint "${wf[@]}" && zizmor --no-progress --config "$ROOT/.github/zizmor.yml" "$ROOT/.github/workflows"
 }
 stage workflows workflows
 

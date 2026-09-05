@@ -10,6 +10,7 @@ Releases are git tags (`vYYYY.MM.DD`); each entry lists the packages that moved.
 | `appsynergy-branding` | 3-4 | os-release URLs point at `github.com/Appsynergy-io/appsynergy-linux` |
 | `appsynergy-branding-desktop`, `appsynergy-wallpapers`, `appsynergy-ca-certificates` | 1-4 | `url=` points at the GitHub repo; no payload change |
 | `appsynergy-keyring` | 1-3 | `url=` points at the GitHub repo; no payload change |
+| gate | — | `make-srctars.sh` forces every mode bit (`--mode='u=rwX,go=rX,a-st'`): a GitHub Actions checkout under umask 002 wrote 664/775 and the payload sha256 drifted in CI only, the same class as the earlier setgid drift. Recorded sums unchanged |
 | CI | — | One workflow, `ci.yml`: `publish` now `needs: check` and runs on every push to `main`; `publish-repo.sh` exits early when the published db already describes the staged packages, so a docs-only merge uploads nothing. `check.sh` stage `workflows` fails on a second workflow file |
 | ISO profile | — | `pacman.conf` carries `Server = file://@PKG_REPO@`; `build-iso.sh` renders it into the work dir and passes it via `mkarchiso -C`. The committed absolute path broke the build each time the checkout moved. `build-iso.sh` also drops the `KDIR` kernel-tree source and the `imma` fallbacks for `SUDO_USER`; the kernel comes from `packages/repo/x86_64` only |
 | `appsynergy-mirrorlist` | 1-6 | scriptlet migrates legacy inline TrustAll `[appsynergy]` to the signed drop-in (keyring-gated, validated, backed up); depends on `appsynergy-keyring` |
