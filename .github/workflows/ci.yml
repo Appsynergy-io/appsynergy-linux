@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -91,6 +91,26 @@ jobs:
             /home/build/.cargo/registry
             desktop/installer/target
           key: rust-${{ runner.os }}-${{ hashFiles('desktop/installer/rust-toolchain.toml', 'desktop/installer/Cargo.lock') }}
+
+  dependabot-automerge:
+    name: dependabot auto-merge
+    # Arms auto-merge on every Dependabot PR so it lands the moment `check`
+    # passes under the main ruleset. Dependabot runs get a read-only token
+    # unless the job declares permissions; nothing is checked out here. A
+    # merge by GITHUB_TOKEN does not trigger the push-to-main run, so a
+    # dependency bump skips publish (it changes no package) and cache saves.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.user.id == 49699333
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: arm auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
 
   publish:
     name: publish
