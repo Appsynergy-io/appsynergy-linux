@@ -13,11 +13,11 @@ Batch server example:
 Desktop defaults:
   Disk:     /dev/nvme0n1  (ENTIRE DISK WIPED)
   Layout:   2G EFI + LUKS2 + btrfs (@ @home @log @cache @snapshots)
-  User:     imma  (bash login; fish installed)
+  User:     appsynergy  (bash login; fish installed)
   Locale:   en_US.UTF-8
   Timezone: America/Sao_Paulo
-  Desktop:  Plasma (Breeze) + Brave + btrfs-assistant
-  Dev:      rustup, go, node, clang, code, … (no docker; k3s is server-only)
+  Desktop:  Plasma (Breeze) + btrfs-assistant
+  Dev:      optional `--dev` overlay on this ISO (bazel/jdk/qemu/go/node/rustup). Default omits it.
 
 Server defaults (see kernel docs SERVER-OS.md keep list):
   Disk:     /dev/sda

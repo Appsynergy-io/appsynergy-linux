@@ -6,7 +6,7 @@ Destructive full-disk installer for the live USB. Built into the ISO by
 | Flag | Desktop (default) | Server |
 |------|-------------------|--------|
 | `--variant` | `desktop` (your choice) | `server` (your choice) |
-| Packages | `packages-target.txt` | `packages-target-server.txt` |
+| Packages | `packages-target.txt` (`--dev` adds `packages-target-desktop-dev.txt`) | `packages-target-server.txt` |
 | Kernel (local) | `appsynergy-linux` | `appsynergy-linux` — same package. Built `GENERIC_V3`, so a CPU without AVX2/BMI2/FMA is **refused before any disk is touched** rather than given a kernel that fails at boot. |
 | FDE | LUKS2 full-disk | same |
 | TPM | auto-enroll when `/dev/tpm*` present (`--no-tpm` to skip) | same |
@@ -37,6 +37,10 @@ Wizard unit tests: `cargo test guide::`
 sudo appsynergy-install --yes --variant server \
   --disks /dev/nvme0n1,/dev/nvme1n1 \
   --password-file /tmp/key --ssh-pubkey /root/id_ed25519.pub
+
+# Desktop + optional toolchain overlay (same ISO):
+sudo appsynergy-install --variant desktop --dev --yes --disk /dev/nvme0n1 \
+  --password-file /tmp/key
 ```
 
 Docs: `kernel/docs/SERVER-OS.md`. Tests: `cargo test`.

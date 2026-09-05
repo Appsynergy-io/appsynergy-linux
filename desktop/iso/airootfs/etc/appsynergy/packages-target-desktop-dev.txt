@@ -1,0 +1,41 @@
+# Optional desktop toolchain overlay. Same ISO, not a second image.
+# Applied only when appsynergy-install --dev (or APPSYNERGY_DESKTOP_DEV=1).
+# Default desktop install does not pacstrap these.
+
+github-cli
+rustup
+go
+nodejs
+npm
+pnpm
+python-pip
+python-pipx
+code
+gdb
+perf
+strace
+qemu-base
+bazelisk
+jdk17-openjdk
+java-runtime-common
+java-environment-common
+gcc
+binutils
+glibc
+linux-api-headers
+pkgconf
+openssl
+clang
+llvm
+compiler-rt
+lld
+cmake
+ninja
+nasm
+perl
+mold
+protobuf
+musl
+kernel-headers-musl
+fuse3
+fuse-overlayfs
