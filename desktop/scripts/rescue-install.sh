@@ -93,7 +93,7 @@ zstd -dc --long=31 "$BOOTSTRAP" | tar -C "$CHROOT" -x || die "failed to unpack b
 R="$CHROOT/root.x86_64"
 [[ -d "$R" ]] || die "unexpected bootstrap layout"
 
-for b in pacstrap arch-chroot sgdisk cryptsetup mkfs.btrfs bootctl; do
+for b in pacstrap arch-chroot sgdisk cryptsetup mkfs.btrfs bootctl nft ssh-keygen partprobe unshare; do
   [[ -x "$R/usr/bin/$b" || -x "$R/usr/sbin/$b" ]] || die "bootstrap is missing $b"
 done
 say "  tooling present"

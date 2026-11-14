@@ -1,6 +1,6 @@
 [package]
 name = "appsynergy-install"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 description = "AppSynergy unified installer: desktop | server dual-NVMe btrfs RAID1"
 license = "MIT"

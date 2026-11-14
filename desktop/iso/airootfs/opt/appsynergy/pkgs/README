@@ -9,8 +9,8 @@ build-iso.sh stages these automatically when present:
   appsynergy-mirrorlist-*.pkg.tar.zst
   appsynergy-keyring-*.pkg.tar.zst
   appsynergy-ca-certificates-*.pkg.tar.zst
-  brave-bin-*.pkg.tar.zst
-  thorium-browser-bin-*.pkg.tar.zst       (optional)
+  brave-bin-*.pkg.tar.zst                 (workstation browsers, built by build-repo.sh)
+  thorium-browser-bin-*.pkg.tar.zst
 
 Retired linux-appsynergy-* and linux-cachyos-igpu-* packages are pruned at build.
 

@@ -72,6 +72,20 @@ build_all() {
 }
 stage makepkg-all build_all
 
+# 4b. The browser packages are repackaged upstream binaries: assert the pinned
+#     sources still exist and still hash to the pin, without paying to repackage
+#     ~700MB on every gate run (build-repo.sh does that once per version).
+browser_sources() {
+  local p
+  for p in brave-bin thorium-browser-bin; do
+    (cd "$ROOT/packages/pkgbuilds/$p" && makepkg --verifysource --noconfirm -d -f) || return 1
+    grep -q '^epoch=' "$ROOT/packages/pkgbuilds/$p/PKGBUILD" && {
+      echo "$p sets an epoch: GitHub rewrites ':' in Release asset names, so the package would 404"; return 1; }
+  done
+  return 0
+}
+stage browser-sources browser_sources
+
 # 5. namcap: package errors are failures, warnings informational.
 #    Lint ONLY what the PKGBUILDs currently produce (makepkg --packagelist) —
 #    a directory glob also lints stale rels from earlier builds and fails on
@@ -138,6 +152,10 @@ kernel_no_fork() {
   kuname=$(sed -n 's/^KERNEL_UNAME=//p' "$ROOT/kernel/upstream/PIN")
   cfg="$ROOT/kernel/upstream/config-$kuname"
   if [[ -f $cfg ]]; then
+    local setting
+    while IFS= read -r setting; do
+      grep -qxF -- "$setting" "$cfg" || { echo "$(basename "$cfg"): lacks $setting"; rc=1; }
+    done < <(sed -n 's/^REQUIRE_CONFIG //p' "$ROOT/kernel/upstream/PIN")
     local s
     for s in CONFIG_BRIDGE_NETFILTER CONFIG_NETFILTER_XT_MATCH_PHYSDEV CONFIG_NF_CONNTRACK_BRIDGE; do
       grep -qE "^$s=[my]$" "$cfg" || { echo "$(basename "$cfg"): $s not enabled"; rc=1; }

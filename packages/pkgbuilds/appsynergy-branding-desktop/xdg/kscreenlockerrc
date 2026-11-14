@@ -1,0 +1,6 @@
+[Greeter]
+WallpaperPlugin=org.kde.image
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/AppSynergy-Lock
+PreviewImage=/usr/share/wallpapers/AppSynergy-Lock

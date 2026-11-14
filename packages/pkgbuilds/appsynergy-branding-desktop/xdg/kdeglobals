@@ -1,0 +1,10 @@
+[General]
+BrowserApplication=brave-browser.desktop
+ColorScheme=BreezeDark
+AccentColor=74,155,184
+
+[Icons]
+Theme=breeze-dark
+
+[KDE]
+LookAndFeelPackage=io.appsynergy.desktop

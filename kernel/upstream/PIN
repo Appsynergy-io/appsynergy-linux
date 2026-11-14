@@ -8,15 +8,15 @@
 # unmodified. The only AppSynergy input is the name.
 
 UPSTREAM_REPO=https://github.com/CachyOS/linux-cachyos.git
-UPSTREAM_COMMIT=bf83c8e
+UPSTREAM_COMMIT=8c1b37292a40209e9edd6df5bc08aec71236550f
 UPSTREAM_FLAVOR=linux-cachyos-server
-PKGVER=7.2.3
+PKGVER=7.3.4
 PKGREL=1
 
 # What the build must produce. build-appsynergy-linux.sh refuses to stage
 # anything that does not match, and check.sh asserts these strings appear here.
 PKGBASE=appsynergy-linux
-KERNEL_UNAME=7.2.3-1-appsynergy-linux
+KERNEL_UNAME=7.3.4-1-appsynergy-linux
 
 # Build options, set explicitly by the build script — never inherited. These are
 # upstream's own values for the published x86_64_v3 ThinLTO server packages,
@@ -29,6 +29,9 @@ KERNEL_UNAME=7.2.3-1-appsynergy-linux
 # is absent and CONFIG_X86_64_VERSION=3 is present before staging.
 OPT__processor_opt=GENERIC_V3
 OPT__use_auto_optimization=no
+# Upstream's default for this flavor; pinned so it cannot change under us. The
+# installer selects preempt=full for workstations at boot (PREEMPT_DYNAMIC).
+OPT__preempt=lazy
 OPT__use_llvm_lto=thin
 OPT__use_lto_suffix=no
 OPT__use_gcc_suffix=no
@@ -59,3 +62,23 @@ REQUIRE_MODULE kernel/net/bridge/netfilter/nf_conntrack_bridge.ko.zst
 # NICs: I210 (OVH appliance) and I225-LM (lab NUC). One image covers both metals.
 REQUIRE_MODULE /igb/igb.ko.zst
 REQUIRE_MODULE /igc/igc.ko.zst
+
+# Required built configuration: encryption, confinement and K3s isolation.
+# These are assertions against upstream's config, not local overrides.
+REQUIRE_CONFIG CONFIG_LTO_CLANG_THIN=y
+REQUIRE_CONFIG CONFIG_PREEMPT_DYNAMIC=y
+REQUIRE_CONFIG CONFIG_PREEMPT_LAZY=y
+# What the per-variant tuning relies on: zram swap (desktop), fq + BBR (server).
+REQUIRE_CONFIG CONFIG_ZRAM=m
+REQUIRE_CONFIG CONFIG_NET_SCH_FQ=m
+REQUIRE_CONFIG CONFIG_TCP_CONG_BBR=m
+REQUIRE_CONFIG CONFIG_SECURITY_APPARMOR=y
+REQUIRE_CONFIG CONFIG_BTRFS_FS=y
+REQUIRE_CONFIG CONFIG_DM_CRYPT=m
+REQUIRE_CONFIG CONFIG_CGROUPS=y
+REQUIRE_CONFIG CONFIG_NAMESPACES=y
+REQUIRE_CONFIG CONFIG_SECCOMP=y
+REQUIRE_CONFIG CONFIG_SECCOMP_FILTER=y
+REQUIRE_MODULE kernel/fs/overlayfs/overlay.ko.zst
+REQUIRE_MODULE kernel/drivers/net/veth.ko.zst
+REQUIRE_MODULE kernel/drivers/net/vxlan/vxlan.ko.zst

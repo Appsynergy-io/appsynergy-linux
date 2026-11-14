@@ -22,7 +22,7 @@ Same idea as today (LUKS → btrfs subvols), but **one LUKS on the whole disk** 
 
 | Mode | You are in it when | Secrets |
 |------|--------------------|---------|
-| **Keyfile / batch** | `--password-file PATH`, `APPSYNERGY_KEYFILE`, an existing `/tmp/appsynergy-key`, or you answered the guided password prompt | **One.** The same string is the LUKS passphrase, the root password and your login password |
+| **Keyfile / batch** | `--password-file PATH`, `APPSYNERGY_KEYFILE`, or you answered the guided password prompt | **One.** The same string is the LUKS passphrase, the root password and your login password |
 | **Interactive** | no keyfile, and you left the guided prompt empty | **Three**, independent: LUKS typed twice at `cryptsetup`, then root and user typed at separate `passwd` prompts in the chroot |
 
 The guided installer states it outright: *"LUKS + root + login password (same for all). Leave empty to type passwords later during install."* Keyfile mode is the default path for unattended and server installs.
@@ -33,7 +33,7 @@ The guided installer states it outright: *"LUKS + root + login password (same fo
 2. `chpasswd` for `root:` and `<user>:` — both login passwords.
 3. `systemd-cryptenroll --unlock-key-file=` — it **authorizes** TPM enrollment. The TPM seals a fresh random key into its own keyslot, so your secret is not the sealed material; but whoever holds it can add a keyslot.
 
-One secret to lose, one to protect. Choose it at **volume-passphrase** strength — it guards a LUKS header an attacker can carry away, so ordinary login-password strength is not enough. It lands in `/tmp/appsynergy-key` and `/tmp/appsynergy-tpm-unlock.key`, both mode 0600 on the live medium's tmpfs and gone at reboot.
+One secret to lose, one to protect. Choose it at **volume-passphrase** strength — it guards a LUKS header an attacker can carry away, so ordinary login-password strength is not enough. The installer creates temporary credentials with mode 0600 inside randomly named 0700 directories, before writing any bytes, and removes them on exit. Account passwords go directly to `chpasswd` over stdin. User-supplied password files remain the operator's responsibility. `/tmp/appsynergy-key` is read only when explicitly passed with `--password-file`.
 
 Use interactive mode if the disk secret must differ from the login password.
 
@@ -48,13 +48,13 @@ Use interactive mode if the disk secret must differ from the login password.
 1. Remove USB.
 2. systemd-boot → **AppSynergy Linux**.
 3. Prompt for disk unlock → type **volume passphrase** + Enter.
-4. SDDM → **imma** + user password.
+4. SDDM → **appsynergy** (or your chosen username) + user password.
 
 ---
 
 ## TPM unlock (after install works)
 
-Do **not** enroll TPM until you have unlocked with the passphrase at least once successfully.
+The installer automatically enrolls an available TPM unless `--no-tpm` is supplied. Keep the recovery passphrase and verify it after installation.
 
 ### 1. Confirm TPM
 

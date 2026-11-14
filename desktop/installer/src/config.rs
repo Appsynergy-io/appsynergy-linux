@@ -71,6 +71,7 @@ impl Variant {
 #[derive(Debug, Parser)]
 #[command(
     name = "appsynergy-install",
+    version,
     about = "AppSynergy unified full-disk installer (desktop | server)",
     long_about = "DESTROYS ALL DATA on target disk(s).\n\n\
 Interactive (default): just run  sudo appsynergy-install\n\
@@ -84,8 +85,7 @@ pub struct Cli {
     pub variant: Option<Variant>,
 
     /// Single target disk (desktop default; server if only one disk).
-    /// No clap `env =`: APPSYNERGY_DISK is read in `resolve_disks_from`, below a
-    /// typed flag. A clap env binding is indistinguishable from a typed value.
+    // No clap env binding: typed flags must outrank APPSYNERGY_DISK.
     #[arg(long)]
     pub disk: Option<PathBuf>,
 
@@ -94,9 +94,11 @@ pub struct Cli {
     #[arg(long)]
     pub disks: Option<String>,
 
+    /// Batch install: requires explicit disks and --password-file.
     #[arg(long, short = 'y')]
     pub yes: bool,
 
+    /// File containing one UTF-8 password line for disk and account passwords.
     #[arg(long, env = "APPSYNERGY_KEYFILE")]
     pub password_file: Option<PathBuf>,
 
@@ -115,6 +117,7 @@ pub struct Cli {
     #[arg(long, env = "APPSYNERGY_TPM_PCRS", default_value = "7")]
     pub tpm_pcrs: String,
 
+    /// Existing OpenSSH public key file (required for headless servers).
     #[arg(long, env = "APPSYNERGY_SSH_PUBKEY")]
     pub ssh_pubkey: Option<PathBuf>,
 
@@ -122,7 +125,7 @@ pub struct Cli {
     #[arg(long = "dev", env = "APPSYNERGY_DESKTOP_DEV", action = clap::ArgAction::SetTrue)]
     pub desktop_dev: bool,
 
-    /// Ignore a same-boot journal and run every phase again.
+    /// Deliberately reinstall: first unmount the target and close its LUKS mappings.
     #[arg(long, action = clap::ArgAction::SetTrue)]
     pub fresh: bool,
 }
@@ -198,16 +201,18 @@ impl Config {
             .cloned()
             .unwrap_or_else(|| "cryptroot".into());
 
-        // Desktop: single disk only (ignore accidental second).
-        let disks = if !variant.is_server() && disks.len() > 1 {
-            eprintln!(
-                "WARN: desktop variant uses first disk only ({})",
-                disks[0].display()
-            );
-            vec![disks[0].clone()]
-        } else {
-            disks
-        };
+        if !variant.is_server() && disks.len() > 1 {
+            bail!("desktop installs use one disk; pass --disk with the intended target");
+        }
+        let disks = disks
+            .into_iter()
+            .map(|p| {
+                fs::canonicalize(&p).with_context(|| format!("resolve target {}", p.display()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if disks.iter().collect::<std::collections::HashSet<_>>().len() != disks.len() {
+            bail!("target disks must be distinct devices");
+        }
 
         let layout = disk::plan_layout(&disks, &efi_size, &cryptname, variant.btrfs_label())?;
 
@@ -254,15 +259,11 @@ impl Config {
 
         let password = match cli.password_file {
             Some(ref p) => Some(read_password_file(p)?),
-            None => {
-                let default = PathBuf::from("/tmp/appsynergy-key");
-                if default.is_file() {
-                    Some(read_password_file(&default)?)
-                } else {
-                    None
-                }
-            }
+            None => None,
         };
+        if cli.yes && password.is_none() {
+            bail!("--yes requires --password-file (batch installs must not prompt after wiping disks)");
+        }
 
         let tpm_pcrs = if cli.tpm_pcrs.is_empty() {
             env.get("APPSYNERGY_TPM_PCRS")
@@ -526,7 +527,7 @@ fn read_ssh_pubkey(path: &Path) -> Result<String> {
             bail!(
                 "ssh pubkey {}: expected OpenSSH public key line, got: {}",
                 path.display(),
-                &line[..line.len().min(40)]
+                line.chars().take(40).collect::<String>()
             );
         }
         lines.push(line.to_string());

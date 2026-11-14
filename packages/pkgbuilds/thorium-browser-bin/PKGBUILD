@@ -1,0 +1,81 @@
+# Maintainer: AppSynergy
+# Thorium, upstream's AVX2 .deb, repackaged for [appsynergy]. Layout and names
+# follow the AUR `thorium-browser-bin` package (RubenKelevra et al.).
+#
+#  - AVX2 build, no CPU probe: every AppSynergy install is x86-64-v3 already
+#    (the installer refuses anything less), and v3 includes AVX2 and FMA.
+#  - WidevineCdm ships as upstream bundles it, with its licence installed
+#    beside the package's own (LicenseRef-Google-Widevine-CDM).
+#  - 138 is upstream's newest release that ships binaries. The M150-M156
+#    releases after it are betas with no Linux assets, so there is nothing newer
+#    to pin; this browser trails current Chromium security fixes until upstream
+#    publishes one. Brave is the default browser for that reason.
+#
+# Bump: set pkgver; sums are the `digest` GitHub reports for the release assets.
+pkgname=thorium-browser-bin
+pkgver=138.0.7204.303
+pkgrel=1
+pkgdesc='Chromium fork focused on high performance and security (upstream AVX2 build)'
+arch=('x86_64')
+url='https://github.com/Alex313031/thorium'
+license=('BSD-3-Clause' 'LicenseRef-Google-Widevine-CDM')
+depends=('alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'glib2' 'gtk3'
+         'hicolor-icon-theme' 'libcups' 'libgcc' 'libnotify' 'libx11' 'libxcb'
+         'libxcomposite' 'libxdamage' 'libxext' 'libxfixes' 'libxkbcommon'
+         'libxrandr' 'mesa' 'nspr' 'nss' 'pango' 'systemd-libs' 'ttf-liberation'
+         'xdg-utils')
+optdepends=('kdialog: native dialogs on Plasma'
+            'pipewire: WebRTC desktop sharing under Wayland'
+            'qt6-base: Qt6 UI support')
+provides=("thorium-browser=$pkgver")
+conflicts=('thorium-browser')
+options=('!emptydirs' '!strip' '!debug')
+source=('thorium-browser.sh'
+        'thorium-shell.sh'
+        "thorium-browser-$pkgver-LICENSE.md::$url/raw/M$pkgver/LICENSE.md"
+        "$url/releases/download/M$pkgver/thorium-browser_${pkgver}_AVX2.deb")
+noextract=("thorium-browser_${pkgver}_AVX2.deb")
+sha256sums=('b6e4e694585f85e38b578ea0f0dc5e4a30b5d0fc337844fcfcbc32be7c69dd93'
+            '68304897ffdf3509e55fed5072926be412228f4b70db53dc0b18136f29b6668e'
+            '2f265beba0a969c8d2959c3268c6cc2cb67b967d8aaa0b78691cf5043a7a4689'
+            'df055a5c8ab0b0437f1265f6992de0d59ac49eb89caa1458e7b958d969847a98')
+
+package() {
+  bsdtar -C "$srcdir" -xf "$srcdir/thorium-browser_${pkgver}_AVX2.deb" data.tar.xz
+  bsdtar -C "$pkgdir" -xJf "$srcdir/data.tar.xz"
+  rm -f "$srcdir/data.tar.xz"
+
+  mv "$pkgdir/opt/chromium.org/thorium" "$pkgdir/opt/thorium-browser"
+  rm -f "$pkgdir/usr/bin/thorium-browser" "$pkgdir/usr/bin/pak"
+  install -Dm755 "$srcdir/thorium-browser.sh" "$pkgdir/usr/bin/thorium-browser"
+  chmod 4755 "$pkgdir/opt/thorium-browser/chrome-sandbox"
+
+  # Widevine stays, as upstream ships it; fail if a future release drops it silently.
+  local wv="$pkgdir/opt/thorium-browser/WidevineCdm"
+  [[ -f $wv/_platform_specific/linux_x64/libwidevinecdm.so && -f $wv/LICENSE ]] || {
+    echo "upstream package no longer bundles the Widevine CDM or its licence" >&2; return 1; }
+  install -Dm644 "$wv/LICENSE" "$pkgdir/usr/share/licenses/thorium-browser-bin/Widevine-LICENSE"
+
+  # thorium-shell: launcher, menu entry and icon, as the AUR package ships them.
+  install -Dm755 "$srcdir/thorium-shell.sh" "$pkgdir/usr/bin/thorium-shell"
+  sed -i 's@^Icon=.*@Icon=thorium-shell@' "$pkgdir/usr/share/applications/thorium-shell.desktop"
+  install -Dm644 "$pkgdir/opt/thorium-browser/thorium_shell.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/thorium-shell.png"
+
+  # AppStream metadata moves to the current location instead of being dropped.
+  install -Dm644 "$pkgdir/usr/share/appdata/thorium-browser.appdata.xml" \
+    "$pkgdir/usr/share/metainfo/org.chromium.Thorium.metainfo.xml"
+
+  # Upstream paths still point at the Debian location.
+  grep -rlI '/opt/chromium.org/thorium' "$pkgdir/usr/share" "$pkgdir/opt/thorium-browser/default-app-block" 2>/dev/null |
+    while IFS= read -r f; do sed -i 's@/opt/chromium.org/thorium/@/opt/thorium-browser/@g' "$f"; done
+
+  install -Dm644 "$pkgdir/opt/thorium-browser/product_logo_256.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/thorium-browser.png"
+  rm -rf "$pkgdir/opt/chromium.org" "$pkgdir/etc/cron.daily" "$pkgdir/usr/share/doc" \
+         "$pkgdir/opt/thorium-browser/cron" "$pkgdir/usr/share/menu" "$pkgdir/usr/share/appdata"
+  rmdir --ignore-fail-on-non-empty "$pkgdir/etc" 2>/dev/null || true
+
+  install -Dm644 "$srcdir/thorium-browser-$pkgver-LICENSE.md" \
+    "$pkgdir/usr/share/licenses/thorium-browser-bin/LICENSE.md"
+}

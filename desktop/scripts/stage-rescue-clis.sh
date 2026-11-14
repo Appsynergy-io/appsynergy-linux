@@ -27,7 +27,11 @@ if [[ -z "$GROK_SRC" ]]; then
 fi
 CLAUDE_SRC="${CLAUDE_BIN:-}"
 if [[ -z "$CLAUDE_SRC" ]]; then
-  if [[ -L "$UHOME/.bun/bin/claude" ]]; then
+  # Native installer first (~/.local/bin/claude -> ~/.local/share/claude/versions/<v>),
+  # then the bun global install it replaced.
+  if [[ -L "$UHOME/.local/bin/claude" ]]; then
+    CLAUDE_SRC=$(readlink -f "$UHOME/.local/bin/claude")
+  elif [[ -L "$UHOME/.bun/bin/claude" ]]; then
     CLAUDE_SRC=$(readlink -f "$UHOME/.bun/bin/claude")
   elif [[ -x "$UHOME/.bun/install/global/node_modules/@anthropic-ai/claude-code-linux-x64/claude" ]]; then
     CLAUDE_SRC="$UHOME/.bun/install/global/node_modules/@anthropic-ai/claude-code-linux-x64/claude"

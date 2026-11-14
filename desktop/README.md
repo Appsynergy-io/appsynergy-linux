@@ -5,25 +5,23 @@
 | Variant | Command | Target |
 |---------|---------|--------|
 | **desktop** (default) | `appsynergy-install` | Z690 Plasma workstation |
-| **server** | `appsynergy-install --variant server` | OVH / tunnel host (no DE) |
+| **server** | `appsynergy-install --variant server` | Headless K3s host (no DE) |
 
 - Live environment: console, NetworkManager/iwd, install tools
-- Desktop target: Plasma (Breeze), LUKS+btrfs, dev stack, `appsynergy-linux`
-- Server target: headless, nftables + WireGuard + networkd, **k3s**, the same `appsynergy-linux` kernel (GENERIC_V3)
+- Desktop target: Plasma (Breeze), LUKS+btrfs, optional `--dev` toolchain, `appsynergy-linux`
+- Server target: headless, nftables + networkd, **k3s**, the same `appsynergy-linux` kernel (GENERIC_V3)
 - Shell: **bash** default (fish optional interactive)
 
 ### Server OS (keep list)
 
-Full documentation (keep list, disk, unlock, packages, NOT-keep apps):
-
-**`kernel/docs/SERVER-OS.md`**
+Installation, recovery and current server defaults: **[`installer/README.md`](installer/README.md)**.
 
 | Keep (summary) | Skip |
 |----------------|------|
 | nft fail-closed, key-only SSH, TPM→SSH→console unlock | agent, pets, console SPA |
 | sysctl FQ/BBR, journald caps, watchdog | RAUC, verity, UKI |
 | AppArmor | Plasma, NM, browsers |
-| WG / nft / namespaces / cgroup v2 / XDP-ready kernel | appsynergy-linux fabric apps |
+| nft / namespaces / cgroup v2 / K3s-ready kernel | appsynergy-linux fabric apps |
 | **k3s** (no docker/containerd/nerdctl) | edgectl / custom orchestrator CLIs |
 | same LUKS+btrfs layout as desktop | |
 
@@ -78,7 +76,7 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 | `iso/airootfs/etc/appsynergy/packages-target-server.txt` | **server** pacstrap list |
 | `iso/airootfs/etc/appsynergy/machine.env` | desktop disk/hostname defaults |
 | `iso/airootfs/etc/appsynergy/machine-server.env` | server defaults (UTC, /dev/sda) |
-| `iso/airootfs/etc/appsynergy/sysctl-server.conf` | tunnel/WG sysctl (server) |
+| `iso/airootfs/etc/appsynergy/sysctl-server.conf` | server networking sysctl |
 | `installer/` | **Rust** `appsynergy-install` (clap); built by `build-iso.sh` |
 | `iso/airootfs/usr/local/bin/appsynergy-install` | staged release binary |
 | `iso/airootfs/opt/appsynergy/pkgs/` | local kernel/branding/browser `.pkg.tar.zst` |
@@ -87,7 +85,7 @@ nvme0n1p2  rest LUKS2 → btrfs @ @home @log @cache @snapshots
 ## Not included (on purpose)
 
 NVIDIA stack, extra kernels, Cachy themes, CUDA, mingw, Firefox, yay/octopi.
-Browsers: Brave (+ Thorium when packaged); custom browser later.
+Browsers: Brave (default) and Thorium, packaged in `[appsynergy]` (`brave-bin`, `thorium-browser-bin`) and installed by the installer's `browsers` phase; custom browser later.
 
 ## Target extras (packages-target)
 

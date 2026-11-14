@@ -1,6 +1,6 @@
 //! AppSynergy unified full-disk installer (live USB).
 //!
-//! Variants: **desktop** (Plasma workstation) | **server** (headless tunnels/OVH).
+//! Variants: **desktop** (Plasma workstation) | **server** (headless K3s).
 //! Server dual NVMe: LUKS per disk + btrfs RAID1 (data+metadata).
 //! Invariants the adversarial tests lock:
 //! - os-release: write `/usr/lib/os-release` only; `/etc/os-release` is a symlink
@@ -18,6 +18,7 @@ mod detect;
 mod disk;
 mod guide;
 mod phase;
+mod secret;
 mod validate;
 
 #[cfg(test)]
@@ -31,8 +32,6 @@ use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
 
 /// Key that signs `[appsynergy]` packages and its database. Pinned here so a
 /// swapped keyring package cannot silently re-root trust; must equal the
@@ -53,15 +52,17 @@ fn try_main() -> Result<()> {
         bail!("run as root (sudo appsynergy-install)");
     }
 
+    let _install_lock = phase::lock()?;
+
     // Guided mode: a few questions, then the usual confirm YES.
     // Skip with: --yes and flags, or APPSYNERGY_NO_GUIDE=1
-    if guide::should_guide(&cli) {
-        guide::run(&mut cli)?;
-    }
+    let _guided_password = if guide::should_guide(&cli) {
+        guide::run(&mut cli)?
+    } else {
+        None
+    };
 
-    if cli.fresh {
-        phase::Journal::reset()?;
-    }
+    let fresh = cli.fresh;
 
     let cfg = Config::load(cli)?;
     // Headless server: verify remote unlock can be armed BEFORE anything else.
@@ -86,6 +87,16 @@ fn try_main() -> Result<()> {
         "bootctl",
         "blkid",
         "efibootmgr",
+        "lsblk",
+        "findmnt",
+        "udevadm",
+        "ssh-keygen",
+        "wipefs",
+        "partprobe",
+        "mountpoint",
+        "sha256sum",
+        "unshare",
+        "nft",
     ] {
         cmd::need(bin)?;
     }
@@ -121,8 +132,14 @@ fn try_main() -> Result<()> {
             );
         }
     }
+    preflight_payload(&cfg)?;
+    if fresh {
+        reject_busy_disks(&cfg)?;
+        phase::Journal::reset()?;
+    }
     banner(&cfg);
     let mut journal = phase::Journal::open()?;
+    let identity = install_identity(&cfg)?;
     if journal.completed() > 0 {
         println!(
             "  resume: {} phase(s) already done this boot (journal {})",
@@ -133,11 +150,21 @@ fn try_main() -> Result<()> {
     } else {
         confirm(&cfg)?;
     }
+    journal.bind(&identity)?;
+    if journal.completed() > 0 {
+        verify_resume(&cfg, &journal)?;
+    } else {
+        reject_busy_disks(&cfg)?;
+    }
     warn_network();
 
     journal.run("partition", || partition(&cfg))?;
     journal.run("luks", || luks_format_open(&cfg))?;
-    journal.run("filesystems", || filesystems(&cfg))?;
+    journal.run("filesystems", || {
+        filesystems(&cfg)?;
+        fs::write("/run/appsynergy-install/storage", storage_identity(&cfg)?)?;
+        Ok(())
+    })?;
     journal.run("subvolumes", || btrfs_subvols(&cfg))?;
     if cfg.layout.is_raid1() {
         journal.run("esp-mirror", || mirror_esp(&cfg))?;
@@ -146,6 +173,7 @@ fn try_main() -> Result<()> {
     journal.run("local-kernel", || install_local_kernel(&cfg))?;
     journal.run("appsynergy-repo", || register_appsynergy_repo(&cfg))?;
     journal.run("branding", || install_branding(&cfg))?;
+    journal.run("browsers", || install_browsers(&cfg))?;
     journal.run("k3s", || install_k3s(&cfg))?;
     journal.run("fstab-crypttab", || fstab_crypttab(&cfg))?;
     journal.run("locale", || locale_hostname(&cfg))?;
@@ -157,12 +185,18 @@ fn try_main() -> Result<()> {
     journal.run("bootloader", || install_bootloader(&cfg))?;
     journal.run("efibootmgr", || fix_efi_nvram(&cfg))?;
     journal.run("server-overlay", || apply_server_overlay(&cfg))?;
+    journal.run("host-security", || configure_host_security(&cfg))?;
+    journal.run("desktop-tuning", || apply_desktop_tuning(&cfg))?;
     journal.run("initramfs", || rebuild_initramfs(&cfg))?;
     journal.run("tpm-enroll", || enroll_tpm(&cfg))?;
     journal.run("initramfs-verify", || verify_initrd_unlock(&cfg))?;
     if cfg.layout.is_raid1() {
         journal.run("esp-resync", || resync_esp_mirror(&cfg))?;
     }
+    // After the installer's own verified mirror: the hooks this installs run on
+    // every later mkinitcpio, and a hook failure fails mkinitcpio. During the
+    // install the mirror is the installer's job, not the hook's.
+    journal.run("esp-maintenance", || install_esp_maintenance(&cfg))?;
     journal.run("services", || enable_services(&cfg))?;
     journal.run("finalize", || finalize(&cfg))?;
 
@@ -195,9 +229,7 @@ fn try_main() -> Result<()> {
         println!(
             "  5. Unlock order: TPM → ssh root@ip (initrd) → console — /etc/appsynergy/UNLOCK.txt"
         );
-        println!(
-            "  6. wg + nft: /etc/nftables.conf; containers: k3s (no docker/containerd/nerdctl)"
-        );
+        println!("  6. K3s: sudo kubectl get nodes; firewall: /etc/nftables.conf");
     }
     println!("============================================================");
     let closes: Vec<String> = cfg
@@ -418,11 +450,332 @@ fn warn_network() {
     }
 }
 
+/// All required payloads and CPU support must be checked before the first wipe.
+fn preflight_payload(cfg: &Config) -> Result<()> {
+    if !Path::new("/sys/firmware/efi").is_dir() {
+        bail!("boot the installer in UEFI mode; BIOS installation is not supported");
+    }
+    let rules = if cfg.variant.is_server() {
+        include_str!("../../iso/airootfs/etc/appsynergy/server-nftables.conf")
+    } else {
+        include_str!("../../iso/airootfs/etc/appsynergy/desktop-nftables.conf")
+    };
+    cmd::run_stdin(
+        "firewall preflight",
+        "unshare",
+        &["--net", "nft", "--check", "--file", "-"],
+        rules.as_bytes(),
+    )?;
+    find_kernel_pkg_pairs(
+        &cfg.local_pkgdir,
+        cfg.variant,
+        &detect::select_kernel_live(cfg.variant.is_server()),
+    )?;
+    config::package_list(&cfg.pkgs_file)?;
+    if let Some(ref extra) = cfg.extra_pkgs_file {
+        config::package_list(extra)?;
+    }
+    if let Some(ref key) = cfg.ssh_pubkey {
+        let file = secret::SecretFile::new(key.as_bytes())?;
+        cmd::run(
+            "SSH public key validation",
+            "ssh-keygen",
+            &["-l", "-f", &file.path().to_string_lossy()],
+        )?;
+    }
+    if cfg.variant.is_server() {
+        for path in [
+            "/opt/appsynergy/k3s/k3s",
+            "/etc/appsynergy/server/initrd-unlock",
+            "/etc/appsynergy/server/initcpio-install-ssh-unlock",
+            "/etc/appsynergy/server/k3s-config.yaml",
+        ] {
+            if !Path::new(path).is_file() {
+                bail!("missing required server payload: {path}; rebuild the ISO before installing");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn install_identity(cfg: &Config) -> Result<String> {
+    // Deliberately exclude password bytes and transient password-file paths.
+    let mut identity = format!("installer={}\nvariant={:?}\nlayout={:?}\nhost={}\nuser={}\ntimezone={}\nlocale={}\nkeymap={}\ntpm={}/{}/{}\nssh={:?}\n",
+        env!("CARGO_PKG_VERSION"), cfg.variant, cfg.layout, cfg.hostname, cfg.user,
+        cfg.timezone, cfg.locale, cfg.keymap, cfg.tpm, cfg.tpm_required, cfg.tpm_pcrs, cfg.ssh_pubkey);
+    for member in &cfg.layout.members {
+        identity.push_str(&cmd::output(
+            "disk identity",
+            "lsblk",
+            &[
+                "-dnbo",
+                "MAJ:MIN,SIZE,SERIAL,WWN",
+                &member.disk.to_string_lossy(),
+            ],
+        )?);
+        identity.push('\n');
+    }
+    identity.push_str(&fs::read_to_string(&cfg.pkgs_file)?);
+    if let Some(ref extra) = cfg.extra_pkgs_file {
+        identity.push_str(&fs::read_to_string(extra)?);
+    }
+    // A changed installer must not reuse checkpoints from old code.
+    identity.push_str(&cmd::output(
+        "installer identity",
+        "sha256sum",
+        &[&std::env::current_exe()?.to_string_lossy()],
+    )?);
+    Ok(identity)
+}
+
+fn reject_busy_disks(cfg: &Config) -> Result<()> {
+    for member in &cfg.layout.members {
+        let mounts = cmd::output(
+            "disk safety",
+            "lsblk",
+            &["-nr", "-o", "MOUNTPOINTS", &member.disk.to_string_lossy()],
+        )?;
+        let types = cmd::output(
+            "disk safety",
+            "lsblk",
+            &["-nr", "-o", "TYPE", &member.disk.to_string_lossy()],
+        )?;
+        if !mounts.trim().is_empty()
+            || types
+                .lines()
+                .any(|t| !["disk", "part", "loop"].contains(&t.trim()))
+        {
+            bail!("{} is mounted, swapped, or has active mappings; unmount/close it before installing", member.disk.display());
+        }
+    }
+    for path in [cfg.mnt.as_path(), Path::new("/mnt")] {
+        if std::process::Command::new("mountpoint")
+            .args(["-q", &path.to_string_lossy()])
+            .status()?
+            .success()
+        {
+            bail!(
+                "{} is already mounted; unmount it before a fresh install",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn target_mounts(cfg: &Config) -> Vec<(&'static str, &'static str)> {
+    let mut mounts = vec![("@", ""), ("@home", "home")];
+    if cfg.variant.is_server() {
+        mounts.push(("@var", "var"));
+    }
+    mounts.extend([
+        ("@log", "var/log"),
+        ("@cache", "var/cache"),
+        ("@snapshots", ".snapshots"),
+    ]);
+    if cfg.variant.is_server() {
+        mounts.push(("@srv", "srv"));
+    }
+    mounts
+}
+
+fn storage_identity(cfg: &Config) -> Result<String> {
+    let mut identity = String::new();
+    for member in &cfg.layout.members {
+        for device in [&member.efi_part, &member.luks_part, &member.mapper_path()] {
+            let uuid = cmd::output(
+                "storage identity",
+                "blkid",
+                &["-s", "UUID", "-o", "value", &device.to_string_lossy()],
+            )?;
+            if uuid.is_empty() {
+                bail!("missing filesystem UUID on {}", device.display());
+            }
+            identity.push_str(&format!("{}={uuid}\n", device.display()));
+        }
+    }
+    Ok(identity)
+}
+
+fn verify_resume(cfg: &Config, journal: &phase::Journal) -> Result<()> {
+    if journal.is_done("luks") {
+        for member in &cfg.layout.members {
+            let part = member.luks_part.to_string_lossy();
+            // A newly supplied password must still unlock every existing volume.
+            if let Some(ref password) = cfg.password {
+                cmd::run_stdin(
+                    "resume password",
+                    "cryptsetup",
+                    &["open", "--test-passphrase", "--key-file=-", &part],
+                    password,
+                )?;
+            }
+            if !member.mapper_path().exists() {
+                if let Some(ref password) = cfg.password {
+                    cmd::run_stdin(
+                        "resume unlock",
+                        "cryptsetup",
+                        &["open", "--key-file=-", &part, &member.cryptname],
+                        password,
+                    )?;
+                } else {
+                    cmd::run(
+                        "resume unlock",
+                        "cryptsetup",
+                        &["open", &part, &member.cryptname],
+                    )?;
+                }
+            }
+            let status = cmd::output(
+                "resume mapper",
+                "cryptsetup",
+                &["status", &member.cryptname],
+            )?;
+            let device = status
+                .lines()
+                .find_map(|line| line.trim().strip_prefix("device:"))
+                .context("mapper device missing")?
+                .trim();
+            if fs::canonicalize(device)? != fs::canonicalize(&member.luks_part)? {
+                bail!(
+                    "{} belongs to another disk; refusing resume",
+                    member.cryptname
+                );
+            }
+        }
+    }
+    if journal.is_done("filesystems")
+        && fs::read_to_string("/run/appsynergy-install/storage")
+            .context("resume storage identities missing")?
+            != storage_identity(cfg)?
+    {
+        bail!("target filesystems changed since installation; refusing resume");
+    }
+    if journal.is_done("subvolumes") {
+        let mapper = cfg.layout.primary().mapper_path();
+        for (subvol, dir) in target_mounts(cfg) {
+            ensure_target_mount(&mapper, &cfg.mnt.join(dir), Some(subvol))?;
+        }
+        ensure_target_mount(&cfg.efi_part, &cfg.mnt.join("boot"), None)?;
+        clear_stale_pacman_lock(cfg)?;
+    }
+    Ok(())
+}
+
+/// Set once a resume finds the target's pacman lock held by nobody: a transaction was
+/// cut short, so files of a package pacman never registered may already be on disk.
+const PACMAN_INTERRUPTED_MARK: &str = "/run/appsynergy-install/pacman-interrupted";
+
+/// A pacman killed mid-transaction (power button, lost console, Ctrl-C) leaves
+/// `var/lib/pacman/db.lck` in the target, and every later pacman call then fails with
+/// "unable to lock database" — the first QEMU resume test died exactly there. The
+/// install lock already excludes a second installer; refuse only if a package manager
+/// is genuinely still running.
+fn clear_stale_pacman_lock(cfg: &Config) -> Result<()> {
+    let lock = cfg.mnt.join("var/lib/pacman/db.lck");
+    if !lock.exists() {
+        return Ok(());
+    }
+    let running = fs::read_dir("/proc")?.flatten().any(|e| {
+        fs::read_to_string(e.path().join("comm"))
+            .map(|c| matches!(c.trim(), "pacman" | "pacstrap"))
+            .unwrap_or(false)
+    });
+    if running {
+        bail!(
+            "{} exists and a package manager is still running; wait for it to exit, then re-run",
+            lock.display()
+        );
+    }
+    fs::remove_file(&lock).with_context(|| format!("remove stale {}", lock.display()))?;
+    fs::write(PACMAN_INTERRUPTED_MARK, "")?;
+    println!("    resume: removed stale pacman lock left by the interrupted run");
+    // pacman creates local/<pkg>-<ver>/ before it has extracted the package and only
+    // writes `desc` at the end, so the package it was killed in is left as an entry
+    // with no desc — and the next transaction aborts on it as "invalid or corrupted
+    // package". Dropping the husk makes that package simply not-yet-installed.
+    let local = cfg.mnt.join("var/lib/pacman/local");
+    for entry in fs::read_dir(&local).into_iter().flatten().flatten() {
+        let dir = entry.path();
+        if dir.is_dir() && fs::metadata(dir.join("desc")).map_or(true, |m| m.len() == 0) {
+            fs::remove_dir_all(&dir)
+                .with_context(|| format!("remove half-written {}", dir.display()))?;
+            println!(
+                "    resume: dropped half-installed package entry {}",
+                entry.file_name().to_string_lossy()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// After an interrupted transaction the re-run must be allowed to replace the files
+/// the dead one left unowned; on a clean run a conflict stays a hard error.
+fn pacman_overwrite_flag() -> &'static str {
+    if Path::new(PACMAN_INTERRUPTED_MARK).exists() {
+        " --overwrite '*'"
+    } else {
+        ""
+    }
+}
+
+fn ensure_target_mount(device: &Path, target: &Path, subvol: Option<&str>) -> Result<()> {
+    let probe = std::process::Command::new("findmnt")
+        .args([
+            "-rn",
+            "--mountpoint",
+            &target.to_string_lossy(),
+            "-o",
+            "UUID,FSROOT",
+        ])
+        .output()?;
+    if probe.status.success() {
+        let uuid = cmd::output(
+            "resume filesystem",
+            "blkid",
+            &["-s", "UUID", "-o", "value", &device.to_string_lossy()],
+        )?;
+        let expected = format!(
+            "{} {}",
+            uuid,
+            subvol
+                .map(|s| format!("/{s}"))
+                .unwrap_or_else(|| "/".into())
+        );
+        if String::from_utf8_lossy(&probe.stdout)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            != expected.split_whitespace().collect::<Vec<_>>()
+        {
+            bail!(
+                "{} is not the expected target filesystem/subvolume; refusing resume",
+                target.display()
+            );
+        }
+    } else {
+        fs::create_dir_all(target)?;
+        let options = subvol
+            .map(|s| format!("subvol={s},compress=zstd:3,noatime,ssd"))
+            .unwrap_or_else(|| "umask=0077".into());
+        cmd::run(
+            "resume mount",
+            "mount",
+            &[
+                "-o",
+                &options,
+                &device.to_string_lossy(),
+                &target.to_string_lossy(),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 fn partition(cfg: &Config) -> Result<()> {
     for m in &cfg.layout.members {
         let disk = m.disk.to_string_lossy();
         println!("    partitioning {}", disk);
-        let _ = cmd::run("partition", "wipefs", &["-af", &disk]);
+        cmd::run("partition", "wipefs", &["-af", &disk])?;
         cmd::run("partition", "sgdisk", &["--zap-all", &disk])?;
         cmd::run(
             "partition",
@@ -439,9 +792,11 @@ fn partition(cfg: &Config) -> Result<()> {
             "sgdisk",
             &["-n2:0:0", "-t2:8309", "-c2:cryptroot", &disk],
         )?;
-        let _ = cmd::run("partition", "partprobe", &[&disk]);
+        // Advisory only: partprobe exits non-zero on devices it merely warns
+        // about. The settle + existence check below is the real assertion.
+        cmd::run_ok("partition", "partprobe", &[&disk]);
     }
-    thread::sleep(Duration::from_secs(1));
+    cmd::run("partition", "udevadm", &["settle", "--timeout=30"])?;
     for m in &cfg.layout.members {
         if !m.efi_part.exists() || !m.luks_part.exists() {
             bail!(
@@ -590,6 +945,8 @@ fn btrfs_subvols(cfg: &Config) -> Result<()> {
         "subvolumes",
         "mount",
         &[
+            "-o",
+            "umask=0077",
             &cfg.layout.primary().efi_part.to_string_lossy(),
             &format!("{mnt}/boot"),
         ],
@@ -622,7 +979,7 @@ fn sync_esp_mirror(cfg: &Config) -> Result<()> {
             "esp-mirror",
             "rsync",
             &[
-                "-aH",
+                "-rct",
                 "--delete",
                 &format!("{}/", src.display()),
                 &format!("{mnt2}/"),
@@ -703,6 +1060,9 @@ fn pacstrap_packages(cfg: &Config) -> Result<()> {
     let mnt = cfg.mnt.to_string_lossy().into_owned();
     let mut cmd_args = vec!["-K".to_string(), mnt];
     cmd_args.extend(pkgs);
+    if !pacman_overwrite_flag().is_empty() {
+        cmd_args.extend(["--overwrite".to_string(), "*".to_string()]);
+    }
     let str_args: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
     println!(
         "    pacstrap ({} packages)",
@@ -748,7 +1108,13 @@ fn install_local_kernel(cfg: &Config) -> Result<()> {
         fs::copy(pkg, dest.join(pkg.file_name().unwrap()))?;
         fs::copy(hdr, dest.join(hdr.file_name().unwrap()))?;
     }
-    cmd::arch_chroot(&cfg.mnt, "pacman -U --noconfirm /root/pkgs/*.pkg.tar.zst")?;
+    cmd::arch_chroot(
+        &cfg.mnt,
+        &format!(
+            "pacman -U --noconfirm{} /root/pkgs/*.pkg.tar.zst",
+            pacman_overwrite_flag()
+        ),
+    )?;
     Ok(())
 }
 
@@ -901,6 +1267,63 @@ fn list_anchored_pkgs(dir: &Path, pkg: &str) -> Vec<PathBuf> {
     out
 }
 
+/// Workstation browsers: Brave (default) and Thorium, both from `[appsynergy]`.
+const BROWSER_PKGS: [&str; 2] = ["brave-bin", "thorium-browser-bin"];
+
+/// Desktop only. The published repo first; the copies on the ISO when the repo
+/// cannot serve them (offline, or a version not published yet). Never fatal: by
+/// this phase the disk is committed, and a machine without a browser is a
+/// `pacman -S` away from having one, while a failed install is not.
+fn install_browsers(cfg: &Config) -> Result<()> {
+    if cfg.variant.is_server() {
+        return Ok(());
+    }
+    let names = BROWSER_PKGS.join(" ");
+    if cmd::arch_chroot(&cfg.mnt, &format!("pacman -S --noconfirm --needed {names}")).is_ok() {
+        println!("    browsers installed from [appsynergy]: {names}");
+        return Ok(());
+    }
+    let mut local: Vec<PathBuf> = Vec::new();
+    for pkg in BROWSER_PKGS {
+        // newest only: a stale rel beside it would make `pacman -U` ambiguous
+        match list_anchored_pkgs(&cfg.local_pkgdir, pkg).pop() {
+            Some(p) => local.push(p),
+            None => eprintln!("WARN: {pkg} is neither in [appsynergy] nor on this medium"),
+        }
+    }
+    if local.is_empty() {
+        eprintln!("WARN: no browser installed; after first boot: sudo pacman -S {names}");
+        return Ok(());
+    }
+    let dest = cfg.mnt.join("root/pkgs");
+    fs::create_dir_all(&dest)?;
+    let mut chroot_paths: Vec<String> = Vec::new();
+    for p in &local {
+        let name = p
+            .file_name()
+            .expect("invariant: list_anchored_pkgs only yields file paths");
+        fs::copy(p, dest.join(name))?;
+        chroot_paths.push(format!("/root/pkgs/{}", name.to_string_lossy()));
+    }
+    match cmd::arch_chroot(
+        &cfg.mnt,
+        &format!(
+            "pacman -U --noconfirm --needed{} {}",
+            pacman_overwrite_flag(),
+            chroot_paths.join(" ")
+        ),
+    ) {
+        Ok(()) => println!("    browsers installed (local): {} pkg(s)", local.len()),
+        Err(e) => eprintln!(
+            "WARN: browser install failed ({e}); after first boot: sudo pacman -S {names}"
+        ),
+    }
+    for path in &chroot_paths {
+        let _ = fs::remove_file(cfg.mnt.join(path.trim_start_matches('/')));
+    }
+    Ok(())
+}
+
 /// Subscribe the target to the signed `[appsynergy]` repo through the keyring.
 ///
 /// The repo section is package-owned: `appsynergy-mirrorlist` post_install appends
@@ -942,7 +1365,11 @@ fn register_appsynergy_repo(cfg: &Config) -> Result<()> {
     }
     cmd::arch_chroot(
         &cfg.mnt,
-        &format!("set -e\npacman -U --noconfirm {}\n", chroot_paths.join(" ")),
+        &format!(
+            "set -e\npacman -U --noconfirm{} {}\n",
+            pacman_overwrite_flag(),
+            chroot_paths.join(" ")
+        ),
     )?;
     // populate is idempotent and covers a keyring whose post_install ran before the
     // trustdb existed; --list-keys is the hard gate — an unpopulated keyring makes
@@ -1166,12 +1593,7 @@ fn fstab_crypttab(cfg: &Config) -> Result<()> {
     let mnt = cfg.mnt.to_string_lossy();
     let out = cmd::output("fstab", "genfstab", &["-U", &mnt])?;
     let fstab = cfg.mnt.join("etc/fstab");
-    fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&fstab)
-        .and_then(|mut f| writeln!(f, "{out}"))
-        .context("write fstab")?;
+    fs::write(&fstab, out).context("write fstab")?;
 
     let mut crypt_entries = Vec::new();
     let mut uuid_lines = String::new();
@@ -1427,6 +1849,150 @@ fn set_ini_key(text: &str, key: &str, value: &str) -> String {
     out
 }
 
+fn configure_host_security(cfg: &Config) -> Result<()> {
+    let rules = if cfg.variant.is_server() {
+        include_str!("../../iso/airootfs/etc/appsynergy/server-nftables.conf")
+    } else {
+        include_str!("../../iso/airootfs/etc/appsynergy/desktop-nftables.conf")
+    };
+    fs::write(cfg.mnt.join("etc/nftables.conf"), rules)?;
+    // A dedicated network namespace validates syntax without touching live rules.
+    cmd::run(
+        "firewall validation",
+        "unshare",
+        &[
+            "--net",
+            "arch-chroot",
+            &cfg.mnt.to_string_lossy(),
+            "nft",
+            "--check",
+            "--file",
+            "/etc/nftables.conf",
+        ],
+    )?;
+    fs::create_dir_all(cfg.mnt.join("etc/ssh/sshd_config.d"))?;
+    if !cfg.variant.is_server() {
+        fs::write(cfg.mnt.join("etc/ssh/sshd_config.d/10-appsynergy.conf"),
+            "PermitRootLogin no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nAuthenticationMethods publickey\nPubkeyAuthentication yes\nPermitEmptyPasswords no\nX11Forwarding no\nAllowAgentForwarding no\nMaxAuthTries 3\n")?;
+    }
+    cmd::arch_chroot(cfg.mnt.as_path(), "ssh-keygen -A && sshd -t")?;
+    for service in ["sshd", "k3s", "systemd-networkd", "NetworkManager"] {
+        if ((service == "k3s" || service == "systemd-networkd") && !cfg.variant.is_server())
+            || (service == "NetworkManager" && cfg.variant.is_server())
+        {
+            continue;
+        }
+        let dir = cfg
+            .mnt
+            .join(format!("etc/systemd/system/{service}.service.d"));
+        fs::create_dir_all(&dir)?;
+        // Workloads fail closed: no firewall, no K3s. Reachability does not: a
+        // ruleset that fails to load must not also take key-only SSH and the
+        // network off a headless box, or the only repair path is the console.
+        let dep = if service == "sshd" || service == "systemd-networkd" {
+            "Wants"
+        } else {
+            "Requires"
+        };
+        fs::write(
+            dir.join("10-firewall.conf"),
+            format!("[Unit]\n{dep}=nftables.service\nAfter=nftables.service\n"),
+        )?;
+    }
+    cmd::arch_chroot(&cfg.mnt, "systemctl enable nftables")?;
+    // No key means no remote login on a workstation; local SDDM still works.
+    if !cfg.variant.is_server() && cfg.ssh_pubkey.is_none() {
+        cmd::arch_chroot(&cfg.mnt, "systemctl disable sshd")?;
+    }
+    Ok(())
+}
+
+/// Workstation-only: swap on compressed RAM and the VM settings that go with it.
+/// The kernel is the same package the servers boot; everything that makes it a
+/// desktop kernel is here and in `disk::DESKTOP_CMDLINE`.
+fn apply_desktop_tuning(cfg: &Config) -> Result<()> {
+    if cfg.variant.is_server() {
+        return Ok(());
+    }
+    fs::create_dir_all(cfg.mnt.join("etc/sysctl.d"))?;
+    fs::write(
+        cfg.mnt.join("etc/sysctl.d/99-appsynergy-desktop.conf"),
+        include_str!("../../iso/airootfs/etc/appsynergy/sysctl-desktop.conf"),
+    )?;
+    fs::create_dir_all(cfg.mnt.join("etc/systemd"))?;
+    fs::write(
+        cfg.mnt.join("etc/systemd/zram-generator.conf"),
+        include_str!("../../iso/airootfs/etc/appsynergy/zram-generator.conf"),
+    )?;
+    Ok(())
+}
+
+fn install_esp_maintenance(cfg: &Config) -> Result<()> {
+    if !cfg.layout.is_raid1() {
+        return Ok(());
+    }
+    fs::create_dir_all(cfg.mnt.join("usr/local/sbin"))?;
+    let script = cfg.mnt.join("usr/local/sbin/appsynergy-sync-esp");
+    fs::write(&script, include_str!("../../scripts/sync-esp.sh"))?;
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755))?;
+    let primary = cmd::output(
+        "ESP identity",
+        "blkid",
+        &["-s", "UUID", "-o", "value", &cfg.efi_part.to_string_lossy()],
+    )?;
+    let secondary = cmd::output(
+        "ESP identity",
+        "blkid",
+        &[
+            "-s",
+            "UUID",
+            "-o",
+            "value",
+            &cfg.layout.members[1].efi_part.to_string_lossy(),
+        ],
+    )?;
+    if primary.is_empty() || secondary.is_empty() || primary == secondary {
+        bail!("invalid ESP UUIDs");
+    }
+    fs::write(
+        cfg.mnt.join("etc/appsynergy/esp-mirror"),
+        format!("{primary}\n{secondary}\n"),
+    )?;
+    fs::create_dir_all(cfg.mnt.join("etc/pacman.d/hooks"))?;
+    fs::write(cfg.mnt.join("etc/pacman.d/hooks/zz-appsynergy-sync-esp.hook"),
+        "[Trigger]\nOperation = Install\nOperation = Upgrade\nType = Package\nTarget = appsynergy-linux\nTarget = mkinitcpio\nTarget = systemd\nTarget = intel-ucode\nTarget = amd-ucode\n\n[Action]\nDescription = Synchronizing failover EFI partition\nWhen = PostTransaction\nExec = /usr/local/sbin/appsynergy-sync-esp\n")?;
+    // Also covers manual mkinitcpio rebuilds (TPM/SSH unlock changes).
+    fs::create_dir_all(cfg.mnt.join("etc/initcpio/post"))?;
+    let post = cfg.mnt.join("etc/initcpio/post/zz-appsynergy-sync-esp");
+    fs::write(
+        &post,
+        "#!/bin/sh\nexec /usr/local/sbin/appsynergy-sync-esp\n",
+    )?;
+    fs::set_permissions(post, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+/// Select the packaged `appsynergy` Plymouth theme explicitly rather than relying
+/// on the branding package's best-effort post_install having run after plymouth.
+fn write_plymouth_theme(cfg: &Config) -> Result<()> {
+    if !cfg
+        .mnt
+        .join("usr/share/plymouth/themes/appsynergy/appsynergy.plymouth")
+        .is_file()
+    {
+        eprintln!("WARN: appsynergy Plymouth theme missing; leaving Plymouth's default");
+        return Ok(());
+    }
+    fs::create_dir_all(cfg.mnt.join("etc/plymouth"))?;
+    fs::write(
+        cfg.mnt.join("etc/plymouth/plymouthd.conf"),
+        "[Daemon]\nTheme=appsynergy\nShowDelay=0\n",
+    )?;
+    println!("    plymouth: theme appsynergy");
+    Ok(())
+}
+
 fn configure_mkinitcpio(cfg: &Config) -> Result<()> {
     let path = cfg.mnt.join("etc/mkinitcpio.conf");
     let mut text = fs::read_to_string(&path).unwrap_or_default();
@@ -1439,6 +2005,14 @@ fn configure_mkinitcpio(cfg: &Config) -> Result<()> {
         // real systemd units instead, and must stay AFTER `systemd` in this list
         // so add_systemd_unit() is defined when it runs.
         "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block appsynergy-ssh-unlock sd-encrypt filesystems fsck)"
+    } else if !cfg.variant.is_server()
+        && cfg.mnt.join("usr/lib/initcpio/install/plymouth").is_file()
+    {
+        // Desktop boot splash. After kms so it draws on the real framebuffer, before
+        // sd-encrypt so the passphrase prompt is Plymouth's. Gated on the hook file:
+        // naming a hook that is not installed makes mkinitcpio fail the whole image.
+        write_plymouth_theme(cfg)?;
+        "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole plymouth block sd-encrypt filesystems fsck)"
     } else {
         "HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)"
     };
@@ -1557,14 +2131,13 @@ chmod 440 /etc/sudoers.d/wheel
             pam = pam_wallet,
         );
         cmd::arch_chroot(&cfg.mnt, &script)?;
-        let pwfile = cfg.mnt.join("root/.appsynergy-chpasswd");
         let mut body = root_line;
         body.push_str(&user_line);
-        fs::write(&pwfile, body.as_bytes())?;
-        let _ = cmd::run("users", "chmod", &["600", &pwfile.to_string_lossy()]);
-        cmd::arch_chroot(
-            &cfg.mnt,
-            "chpasswd < /root/.appsynergy-chpasswd && rm -f /root/.appsynergy-chpasswd",
+        cmd::run_stdin(
+            "users",
+            "arch-chroot",
+            &[&cfg.mnt.to_string_lossy(), "chpasswd"],
+            body.as_bytes(),
         )?;
         println!("    root + {} passwords set from keyfile", cfg.user);
     } else {
@@ -1640,12 +2213,12 @@ fn install_bootloader(cfg: &Config) -> Result<()> {
     };
     let mut extra = String::new();
     if cfg.variant.is_server() {
-        extra.push_str("preempt=voluntary");
+        extra.push_str(disk::SERVER_CMDLINE);
         if cfg.ssh_pubkey.is_some() {
             extra.push_str(" ip=dhcp");
         }
     } else {
-        extra.push_str("nowatchdog");
+        extra.push_str(disk::DESKTOP_CMDLINE);
     }
     let options = disk::render_cmdline_luks(&luks_pairs, &root_spec, &extra);
 
@@ -1845,19 +2418,11 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
     println!("    PCRS: {}", cfg.tpm_pcrs);
     println!("    passphrase slot kept as recovery");
 
-    let keyfile_path = PathBuf::from("/tmp/appsynergy-tpm-unlock.key");
-    let key_owned: Option<PathBuf> = if let Some(ref pw) = cfg.password {
-        fs::write(&keyfile_path, pw).context("write temp unlock keyfile")?;
-        let _ = cmd::run(
-            "tpm-enroll",
-            "chmod",
-            &["600", &keyfile_path.to_string_lossy()],
-        );
-        Some(keyfile_path.clone())
-    } else {
-        None
-    };
-
+    let key_owned = cfg
+        .password
+        .as_deref()
+        .map(secret::SecretFile::new)
+        .transpose()?;
     let pcrs = cfg.tpm_pcrs.clone();
     let mut enroll_err: Option<anyhow::Error> = None;
     for m in &cfg.layout.members {
@@ -1870,7 +2435,7 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
                 &[
                     "--tpm2-device=auto",
                     &format!("--tpm2-pcrs={pcrs}"),
-                    &format!("--unlock-key-file={}", kf.display()),
+                    &format!("--unlock-key-file={}", kf.path().display()),
                     &dev,
                 ],
             )
@@ -1888,9 +2453,7 @@ fn enroll_tpm(cfg: &Config) -> Result<()> {
         }
     }
 
-    if key_owned.is_some() {
-        let _ = fs::remove_file(&keyfile_path);
-    }
+    drop(key_owned);
 
     if let Some(e) = enroll_err {
         if cfg.tpm_required {
@@ -1993,26 +2556,68 @@ fn enable_services(cfg: &Config) -> Result<()> {
             "systemctl enable sshd systemd-networkd systemd-resolved nftables k3s",
         )?;
         // Degrade-only: confinement and periodic trim never strand the host.
-        cmd::arch_chroot_ok(&cfg.mnt, "systemctl enable apparmor fstrim.timer || true");
         cmd::arch_chroot_ok(
             &cfg.mnt,
-            r#"ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf || true"#,
+            "systemctl enable apparmor fstrim.timer systemd-timesyncd || true",
         );
+        link_stub_resolv_conf(cfg)?;
         cmd::arch_chroot_ok(
             &cfg.mnt,
             "systemctl disable sddm NetworkManager bluetooth 2>/dev/null || true",
         );
     } else {
-        cmd::arch_chroot(&cfg.mnt, "systemctl enable NetworkManager sddm sshd")?;
-        cmd::arch_chroot_ok(
-            &cfg.mnt,
-            "systemctl enable fstrim.timer bluetooth obex || true",
-        );
+        cmd::arch_chroot(&cfg.mnt, "systemctl enable NetworkManager sddm")?;
+        if cfg.ssh_pubkey.is_some() {
+            cmd::arch_chroot(&cfg.mnt, "systemctl enable sshd")?;
+        }
+        // One unit per call: `systemctl enable a b c` enables nothing when any one
+        // name is unknown, and `obex` is a user unit — so fstrim.timer and bluetooth
+        // were silently left disabled on every desktop (seen on the QEMU install).
+        for unit in ["fstrim.timer", "bluetooth", "systemd-timesyncd"] {
+            cmd::arch_chroot_ok(&cfg.mnt, &format!("systemctl enable {unit} || true"));
+        }
+        cmd::arch_chroot_ok(&cfg.mnt, "systemctl --global enable obex.service || true");
         cmd::arch_chroot_ok(
             &cfg.mnt,
             "systemctl --global enable plasma-kwallet-pam.service || true",
         );
     }
+    Ok(())
+}
+
+/// Point the target's `/etc/resolv.conf` at systemd-resolved's stub.
+///
+/// Done on the mounted tree, never inside arch-chroot: arch-chroot bind-mounts the
+/// live resolv.conf over that path, so an `ln -sfn` in there fails with "Device or
+/// resource busy" and the `|| true` it used to carry hid that for releases. The
+/// installed file stayed the stock comment-only one. glibc programs never noticed
+/// (nsswitch reaches resolved directly), but k3s and containerd are static Go
+/// binaries that read the file, found no nameserver, and could not pull a single
+/// image: every pod sat in ContainerCreating on the first QEMU boot.
+fn link_stub_resolv_conf(cfg: &Config) -> Result<()> {
+    let path = cfg.mnt.join("etc/resolv.conf");
+    // An arch-chroot that was killed (the interrupted run this one resumes) never
+    // unmounts its resolv.conf bind, and the file then cannot be replaced: EBUSY.
+    for _ in 0..8 {
+        let mounted = std::process::Command::new("mountpoint")
+            .arg("-q")
+            .arg(&path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !mounted {
+            break;
+        }
+        cmd::run("resolv.conf", "umount", &[&path.to_string_lossy()])?;
+    }
+    match fs::remove_file(&path) {
+        Ok(()) => (),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(e) => return Err(e).with_context(|| format!("replace {}", path.display())),
+    }
+    std::os::unix::fs::symlink("../run/systemd/resolve/stub-resolv.conf", &path)
+        .with_context(|| format!("symlink {}", path.display()))?;
+    println!("    resolv.conf -> systemd-resolved stub");
     Ok(())
 }
 
@@ -2052,12 +2657,6 @@ fn apply_server_overlay(cfg: &Config) -> Result<()> {
         fs::copy(mod_src, &mod_dst)?;
     } else {
         fs::write(&mod_dst, "nf_conntrack\nnf_tables\n")?;
-    }
-
-    let nft_src = Path::new("/etc/appsynergy/server-nftables.conf");
-    let nft_dst = cfg.mnt.join("etc/nftables.conf");
-    if nft_src.is_file() {
-        fs::copy(nft_src, &nft_dst)?;
     }
 
     // journald + watchdog (appsynergy-linux host hardening, no apps)
@@ -2219,13 +2818,13 @@ Login shell default: /bin/bash\nVariant: {}\n",
         if tpm_enrolled {
             format!(
                 "\n  {product}\n  LUKS+btrfs · TPM unlock (passphrase recovery)\n  \
-networkd + nftables + wireguard-tools · SSH :22\n  \
+networkd + nftables + K3s · SSH :22\n  \
 See /etc/appsynergy/TPM.txt and /etc/nftables.conf\n\n"
             )
         } else {
             format!(
                 "\n  {product}\n  LUKS+btrfs · passphrase unlock (no TPM enrolled)\n  \
-networkd + nftables + wireguard-tools · SSH :22\n  \
+networkd + nftables + K3s · SSH :22\n  \
 TPM later: sudo appsynergy-tpm-enroll — /etc/appsynergy/TPM.txt\n\n"
             )
         }
