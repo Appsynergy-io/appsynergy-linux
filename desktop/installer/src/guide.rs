@@ -4,7 +4,7 @@
 
 use crate::config::{Cli, Variant};
 use anyhow::{bail, Result};
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -23,7 +23,7 @@ pub fn should_guide_with(yes: bool, no_guide_env: bool, has_tty: bool) -> bool {
 }
 
 fn atty_stdin() -> bool {
-    std::fs::File::open("/dev/tty").is_ok()
+    io::stdin().is_terminal()
 }
 
 /// Parse menu choice for product variant.
@@ -190,7 +190,8 @@ pub fn planned_disks_from_cli(cli: &Cli) -> Vec<PathBuf> {
 }
 
 /// Fill in missing CLI fields via short prompts. Mutates `cli`.
-pub fn run(cli: &mut Cli) -> Result<()> {
+pub fn run(cli: &mut Cli) -> Result<Option<crate::secret::SecretFile>> {
+    let mut password = None;
     println!();
     println!("============================================================");
     println!("  AppSynergy install");
@@ -201,7 +202,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     if cli.variant.is_none() {
         println!("What are you installing?");
         println!("  1) Desktop  — workstation (Plasma)");
-        println!("  2) Server   — headless tunnels / OVH");
+        println!("  2) Server   — headless K3s");
         println!();
         let choice = prompt("Enter 1 or 2", "2")?;
         cli.variant = Some(parse_variant_choice(&choice)?);
@@ -210,6 +211,10 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     let server = matches!(cli.variant, Some(Variant::Server));
 
     // --- 2. Disks ---
+    println!("Available disks (check size and model before choosing):");
+    let _ = Command::new("lsblk")
+        .args(["-d", "-o", "NAME,SIZE,MODEL,TRAN"])
+        .status();
     if server && cli.disks.is_none() && cli.disk.is_none() {
         let dual = Path::new("/dev/nvme0n1").exists() && Path::new("/dev/nvme1n1").exists();
         if dual {
@@ -248,9 +253,9 @@ pub fn run(cli: &mut Cli) -> Result<()> {
                 },
             );
         }
-    } else if !server && cli.disk.is_none() {
-        let default =
-            first_existing(&["/dev/nvme0n1", "/dev/sda"]).unwrap_or_else(|| "/dev/nvme0n1".into());
+    } else if !server && cli.disk.is_none() && cli.disks.is_none() {
+        let default = first_existing(&["/dev/nvme0n1", "/dev/sda", "/dev/vda"])
+            .unwrap_or_else(|| "/dev/nvme0n1".into());
         println!();
         let d = prompt(&format!("Disk path [{default}]"), &default)?;
         apply_disk_choice(
@@ -263,7 +268,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
 
     // --- 2b. Nuke existing install ---
     let planned = planned_disks_from_cli(cli);
-    if !planned.is_empty() {
+    if !planned.is_empty() && (cli.fresh || !Path::new(crate::phase::JOURNAL_PATH).exists()) {
         let hint = probe_existing_install(&planned);
         if hint.looks_occupied() {
             println!();
@@ -301,7 +306,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     }
 
     // --- 3. Password ---
-    if cli.password_file.is_none() && !Path::new("/tmp/appsynergy-key").is_file() {
+    if cli.password_file.is_none() {
         println!();
         println!("LUKS + root + login password (same for all).");
         println!("Leave empty to type passwords later during install.");
@@ -309,13 +314,9 @@ pub fn run(cli: &mut Cli) -> Result<()> {
         if !p1.is_empty() {
             let p2 = prompt_secret("Again")?;
             validate_password_pair(&p1, &p2)?;
-            let path = PathBuf::from("/tmp/appsynergy-key");
-            std::fs::write(&path, p1.as_bytes())?;
-            let _ = Command::new("chmod")
-                .args(["600", &path.to_string_lossy()])
-                .status();
-            cli.password_file = Some(path);
-            println!("  (saved to /tmp/appsynergy-key for this install only)");
+            let key = crate::secret::SecretFile::new(p1.as_bytes())?;
+            cli.password_file = Some(key.path().to_owned());
+            password = Some(key);
         }
     }
 
@@ -344,7 +345,9 @@ pub fn run(cli: &mut Cli) -> Result<()> {
             }
             if cli.ssh_pubkey.is_none() {
                 println!("SSH public key (root login + unlock if TPM fails).");
-                println!("Path to existing .pub file, or empty to skip. (never generates a key)");
+                println!(
+                    "Path to an existing .pub file (required for server login and disk unlock)."
+                );
                 let p = prompt("Path to .pub", "")?;
                 let p = p.trim();
                 if !p.is_empty() {
@@ -353,7 +356,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
                     }
                     cli.ssh_pubkey = Some(PathBuf::from(p));
                 } else {
-                    println!("  (no key — unlock with passphrase on console/IPMI)");
+                    bail!("server requires an SSH public key; copy your .pub file to the live system and retry");
                 }
             }
         }
@@ -403,7 +406,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     );
     println!(
         "  Password: {}",
-        if cli.password_file.is_some() || Path::new("/tmp/appsynergy-key").is_file() {
+        if cli.password_file.is_some() {
             "set"
         } else {
             "ask during install"
@@ -421,7 +424,7 @@ pub fn run(cli: &mut Cli) -> Result<()> {
     println!("------------------------------------------------------------");
     println!("  Next: type YES when asked to destroy all data.");
     println!();
-    Ok(())
+    Ok(password)
 }
 
 fn first_existing(cands: &[&str]) -> Option<String> {
@@ -439,7 +442,9 @@ fn prompt(label: &str, default: &str) -> Result<String> {
     }
     io::stdout().flush()?;
     let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
+    if io::stdin().read_line(&mut line)? == 0 {
+        bail!("input closed; installation cancelled");
+    }
     let t = line.trim();
     if t.is_empty() {
         Ok(default.to_string())
@@ -451,12 +456,16 @@ fn prompt(label: &str, default: &str) -> Result<String> {
 fn prompt_secret(label: &str) -> Result<String> {
     print!("{label}: ");
     io::stdout().flush()?;
-    let _ = Command::new("stty").args(["-echo"]).status();
+    if !Command::new("stty").args(["-echo"]).status()?.success() {
+        bail!("cannot hide password input; use --password-file instead");
+    }
     let mut line = String::new();
     let r = io::stdin().read_line(&mut line);
     let _ = Command::new("stty").args(["echo"]).status();
     println!();
-    r?;
+    if r? == 0 {
+        bail!("input closed; installation cancelled");
+    }
     Ok(line.trim_end_matches(['\n', '\r']).to_string())
 }
 

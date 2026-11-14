@@ -551,7 +551,7 @@ fn dual_cmdline_opens_both_luks_before_root() {
             ("crypt1".into(), "u1".into()),
         ],
         "UUID=btrfs-xxxx",
-        "preempt=voluntary ip=dhcp",
+        &format!("{} ip=dhcp", disk::SERVER_CMDLINE),
     );
     let i0 = cmd.find("rd.luks.name=u0=crypt0").unwrap();
     let i1 = cmd.find("rd.luks.name=u1=crypt1").unwrap();
@@ -985,11 +985,11 @@ fn critical_server_services_are_enabled_by_a_hard_call() {
             "{svc} must be in the hard enable: {stmt}"
         );
     }
-    // apparmor and fstrim.timer stay warn-only. Desktop NM/SDDM/sshd are hard.
-    assert!(body.contains(
-        "cmd::arch_chroot_ok(&cfg.mnt, \"systemctl enable apparmor fstrim.timer || true\")"
-    ));
-    assert!(body.contains("systemctl enable NetworkManager sddm sshd"));
+    // apparmor, fstrim.timer and time sync stay warn-only. Desktop NM/SDDM/sshd are hard.
+    assert!(body.contains("\"systemctl enable apparmor fstrim.timer systemd-timesyncd || true\""));
+    assert!(body.contains("systemctl enable NetworkManager sddm"));
+    assert!(body.contains("if cfg.ssh_pubkey.is_some()"));
+    assert!(body.contains("systemctl enable sshd"));
     assert!(
         !body.contains("systemctl enable NetworkManager sddm sshd fstrim.timer bluetooth || true")
     );
@@ -1082,9 +1082,185 @@ fn cmdline_single_disk_root_mapper() {
     let c = disk::render_cmdline_luks(
         &[("cryptroot".into(), "u".into())],
         "/dev/mapper/cryptroot",
-        "nowatchdog",
+        disk::DESKTOP_CMDLINE,
     );
     assert!(c.contains("rd.luks.name=u=cryptroot"));
     assert!(c.contains("root=/dev/mapper/cryptroot"));
     assert!(c.contains("nowatchdog"));
+}
+
+/// One kernel serves both variants, so everything variant-specific lives in
+/// files the installer writes. Lock the pieces that silently stop working if
+/// one half is removed.
+#[test]
+fn per_variant_tuning_is_complete_and_consistent() {
+    let src = include_str!("main.rs");
+    let desktop_pkgs = include_str!("../../iso/airootfs/etc/appsynergy/packages-target.txt");
+    let server_pkgs = include_str!("../../iso/airootfs/etc/appsynergy/packages-target-server.txt");
+    let has = |list: &str, name: &str| list.lines().any(|l| l.trim() == name);
+
+    // zram needs its generator, its config, and zswap off; servers get none of it.
+    assert!(has(desktop_pkgs, "zram-generator"));
+    assert!(!has(server_pkgs, "zram-generator"));
+    assert!(src.contains("etc/systemd/zram-generator.conf"));
+    assert!(disk::render_cmdline_luks(&[], "x", "").contains("zswap.enabled=0"));
+
+    // sysctl names a qdisc and a congestion control that are modules.
+    let sysctl = include_str!("../../iso/airootfs/etc/appsynergy/sysctl-server.conf");
+    let modules = include_str!("../../iso/airootfs/etc/appsynergy/modules-load-server.conf");
+    for (key, module) in [
+        ("net.core.default_qdisc = fq", "sch_fq"),
+        ("net.ipv4.tcp_congestion_control = bbr", "tcp_bbr"),
+    ] {
+        assert!(sysctl.lines().any(|l| l == key), "{key}");
+        assert!(modules.lines().any(|l| l == module), "{module}");
+    }
+    // ...and the pin asserts the kernel still ships them.
+    let pin = include_str!("../../../kernel/upstream/PIN");
+    for cfg in [
+        "CONFIG_PREEMPT_DYNAMIC=y",
+        "CONFIG_ZRAM=m",
+        "CONFIG_NET_SCH_FQ=m",
+        "CONFIG_TCP_CONG_BBR=m",
+    ] {
+        assert!(pin.lines().any(|l| l == format!("REQUIRE_CONFIG {cfg}")));
+    }
+
+    // The firewall CIDR and the K3s CIDR are one fact in two files.
+    let k3s = include_str!("../../iso/airootfs/etc/appsynergy/server/k3s-config.yaml");
+    let nft = include_str!("../../iso/airootfs/etc/appsynergy/server-nftables.conf");
+    assert!(k3s.contains("cluster-cidr: \"10.42.0.0/16\""));
+    assert!(nft.contains("ip saddr 10.42.0.0/16"));
+
+    // A broken ruleset stops K3s but must not take SSH off a headless host.
+    assert!(src.contains("service == \"sshd\" || service == \"systemd-networkd\""));
+}
+
+/// A resume after a killed pacman must clear the stale lock, and only then may the
+/// re-run overwrite the unowned files that transaction left behind. Found by the QEMU
+/// resume test: the second run died with "unable to lock database".
+#[test]
+fn resume_recovers_from_an_interrupted_pacman_transaction() {
+    let src = include_str!("main.rs");
+    let verify = src
+        .split("fn verify_resume(")
+        .nth(1)
+        .and_then(|s| s.split("\nfn ").next())
+        .expect("verify_resume body");
+    assert!(
+        verify.contains("clear_stale_pacman_lock(cfg)?"),
+        "resume must clear a stale pacman db.lck once the target is mounted"
+    );
+    assert!(
+        src.matches("pacman_overwrite_flag()").count() >= 4,
+        "pacstrap and both local `pacman -U` calls must honour the interrupted marker"
+    );
+    assert!(
+        include_str!("phase.rs").contains("/run/appsynergy-install/pacman-interrupted"),
+        "--fresh must forget the interrupted marker along with the journal"
+    );
+}
+
+/// Found by the QEMU server boot: `/etc/resolv.conf` cannot be replaced inside
+/// arch-chroot (it is a bind mount there), so the link must be made on the mounted
+/// tree and must be fatal — K3s cannot pull images without it.
+#[test]
+fn server_resolv_conf_is_linked_outside_the_chroot() {
+    let src = include_str!("main.rs");
+    let body = src
+        .split("fn enable_services(")
+        .nth(1)
+        .and_then(|s| s.split("\n}\n").next())
+        .expect("enable_services body");
+    assert!(body.contains("link_stub_resolv_conf(cfg)?"));
+    assert!(
+        !body.contains("/etc/resolv.conf"),
+        "resolv.conf must not be touched from inside arch-chroot"
+    );
+    assert!(src.contains(r#"symlink("../run/systemd/resolve/stub-resolv.conf""#));
+}
+
+/// The desktop identity must be applied, not merely installed: through
+/// branding-desktop 1-4 a fresh workstation booted to stock Breeze, Plasma's own
+/// wallpaper and no boot splash while the AppSynergy assets sat unused on disk.
+#[test]
+fn desktop_identity_is_applied_not_just_installed() {
+    let pkg = include_str!("../../../packages/pkgbuilds/appsynergy-branding-desktop/PKGBUILD");
+    for path in [
+        "usr/share/plasma/$laf/contents/defaults",
+        "for f in kscreenlockerrc kdeglobals ksplashrc mimeapps.list; do",
+        "$pkgdir/etc/xdg/$f",
+        "usr/share/sddm/themes/breeze/theme.conf.user",
+    ] {
+        assert!(pkg.contains(path), "branding-desktop must install {path}");
+    }
+    let defaults = include_str!(
+        "../../../packages/pkgbuilds/appsynergy-branding-desktop/lookandfeel/io.appsynergy.desktop/contents/defaults"
+    );
+    assert!(defaults.contains("[Wallpaper]\nImage=AppSynergy\n"));
+    // The name must be a wallpaper package appsynergy-wallpapers really installs.
+    assert!(include_str!(
+        "../../../packages/pkgbuilds/appsynergy-wallpapers/metadata-desktop.json"
+    )
+    .contains("\"Id\": \"AppSynergy\""));
+    assert!(
+        include_str!("../../iso/airootfs/etc/skel/.config/kdeglobals")
+            .contains("LookAndFeelPackage=io.appsynergy.desktop")
+    );
+    // Start button and session splash come from the same look-and-feel; the system
+    // default under /etc/xdg must select it, as the skel copy does.
+    let layout = include_str!(
+        "../../../packages/pkgbuilds/appsynergy-branding-desktop/lookandfeel/io.appsynergy.desktop/contents/layouts/org.kde.plasma.desktop-layout.js"
+    );
+    assert!(layout.contains("w.writeConfig(\"icon\", \"appsynergy-start\")"));
+    // The pinned browser must be one the installer actually installs.
+    assert!(layout.contains("applications:brave-browser.desktop"));
+    assert!(include_str!("main.rs").contains(r#"["brave-bin", "thorium-browser-bin"]"#));
+    assert!(!layout.contains("preferred://browser"));
+    assert_eq!(
+        include_str!("../../../packages/pkgbuilds/appsynergy-branding-desktop/xdg/kdeglobals"),
+        include_str!("../../iso/airootfs/etc/skel/.config/kdeglobals"),
+        "skel kdeglobals and the packaged system default must not drift"
+    );
+    assert!(defaults.contains("[ksplashrc][KSplash]\nTheme=io.appsynergy.desktop"));
+    // Boot splash: package, hook and cmdline have to agree or none of it shows.
+    let pkgs = include_str!("../../iso/airootfs/etc/appsynergy/packages-target.txt");
+    assert!(pkgs.lines().any(|l| l.trim() == "plymouth"));
+    assert!(disk::DESKTOP_CMDLINE.contains("splash"));
+    assert!(!disk::SERVER_CMDLINE.contains("splash"));
+    let src = include_str!("main.rs");
+    assert!(src.contains("sd-vconsole plymouth block sd-encrypt"));
+    assert!(src.contains("Theme=appsynergy"));
+}
+
+/// Browsers are a workstation concern, come from our repo (never pacstrap, never a
+/// server), and must not be able to fail an install on a committed disk.
+#[test]
+fn browsers_are_desktop_only_and_never_fatal() {
+    let src = include_str!("main.rs");
+    let body = src
+        .split("fn install_browsers(")
+        .nth(1)
+        .and_then(|s| s.split("\n}\n").next())
+        .expect("install_browsers body");
+    assert!(body.contains("if cfg.variant.is_server() {\n        return Ok(());"));
+    assert!(
+        !body.contains(")?;\n    Ok(())") && !body.contains("bail!("),
+        "a browser must never fail the install"
+    );
+    for pkg in ["brave-bin", "thorium-browser-bin"] {
+        assert!(
+            disk::should_skip_pacstrap_pkg(pkg),
+            "{pkg} is not in core/extra"
+        );
+        let server = include_str!("../../iso/airootfs/etc/appsynergy/packages-target-server.txt");
+        assert!(!server.lines().any(|l| l.trim() == pkg));
+    }
+    // GitHub rewrites ':' in Release asset names; an epoch'd package would 404.
+    for pkgbuild in [
+        include_str!("../../../packages/pkgbuilds/brave-bin/PKGBUILD"),
+        include_str!("../../../packages/pkgbuilds/thorium-browser-bin/PKGBUILD"),
+    ] {
+        assert!(!pkgbuild.lines().any(|l| l.starts_with("epoch=")));
+    }
 }

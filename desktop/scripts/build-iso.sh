@@ -80,6 +80,9 @@ declare -A PKG_GLOB=(
   [appsynergy-mirrorlist]='appsynergy-mirrorlist-[0-9]*.pkg.tar.zst'
   [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
   [appsynergy-keyring]='appsynergy-keyring-[0-9]*.pkg.tar.zst'
+  # Workstation browsers, installed from here when [appsynergy] cannot serve them.
+  [brave-bin]='brave-bin-[0-9]*.pkg.tar.zst'
+  [thorium-browser-bin]='thorium-browser-bin-[0-9]*.pkg.tar.zst'
 )
 for src in "$PKG_REPO" \
            "$MONO/packages/pkgbuilds/appsynergy-branding" \
@@ -106,8 +109,8 @@ for base in "${!PKG_GLOB[@]}"; do
 done
 # Stray artifacts that must never reach the image
 rm -f "$PROFILE/airootfs/usr/local/bin/appsynergy-install.bin"
-echo "Local kernel/branding pkgs:"
-ls -lh "$DST_PKG"/appsynergy-*.pkg.tar.zst 2>/dev/null || true
+echo "Local kernel/branding/browser pkgs:"
+ls -lh "$DST_PKG"/*.pkg.tar.zst 2>/dev/null || true
 
 # Fail if kernel or branding missing when local kernel is expected
 if ! compgen -G "$DST_PKG"/appsynergy-linux-[0-9]*.pkg.tar.zst > /dev/null; then

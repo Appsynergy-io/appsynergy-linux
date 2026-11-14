@@ -1,30 +1,15 @@
-# k3s server configuration (plan R-b).
-#
-# masquerade-all is a hold-over, not a preference. The retired per-metal
-# kernels lacked CONFIG_BRIDGE_NETFILTER, so bridged frames never traversed
-# conntrack: a pod reaching a pod through a service IP was DNATed on the way in
-# but the reply was bridged straight back, never un-DNATed, and discarded.
-# Masquerading forces the reply through the host where conntrack undoes the
-# translation, at the cost of cluster services seeing the node address.
-#
-# appsynergy-linux ships br_netfilter (kernel/upstream/PIN REQUIRE_MODULE), so
-# the cause is gone once a host boots it. Keep masquerade-all until the first
-# server runs appsynergy-linux and pod->service->pod is verified with
-# br_netfilter loaded; dropping it is a kernel-swap-window decision.
-kube-proxy-arg:
-  - "masquerade-all=true"
-
-# The WireGuard agents forward customer traffic, so their Pods set
-# net.ipv4.ip_forward. The kubelet classifies that sysctl as unsafe — it is
-# namespaced, but it changes what the Pod does to traffic that is not its own —
-# so it has to be allowed by name rather than by a blanket opt-out. Nothing
-# else on this node is permitted an unsafe sysctl.
+# Single-node K3s. Host firewall uses this pod CIDR; change both together.
+cluster-cidr: "10.42.0.0/16"
+service-cidr: "10.43.0.0/16"
+# Keep the host (sshd, journald, k3s itself) schedulable when pods fill the
+# node. Accounting only: no cgroup is enforced on system services.
 kubelet-arg:
-  - "allowed-unsafe-sysctls=net.ipv4.ip_forward"
-
+  - "system-reserved=cpu=250m,memory=512Mi"
+  - "kube-reserved=cpu=250m,memory=512Mi"
+  - "image-gc-high-threshold=80"
+  - "image-gc-low-threshold=70"
 disable:
   - traefik
   - servicelb
-
 secrets-encryption: true
 write-kubeconfig-mode: "0600"

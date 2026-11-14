@@ -6,3 +6,6 @@ repo/
 **/appsynergy-mirrorlist-*.pkg.tar*
 **/appsynergy-branding-*.pkg.tar*
 **/*-payload.tar
+**/*.zip
+**/*.deb
+**/thorium-browser-*-LICENSE.md

@@ -12,6 +12,12 @@ btrfs-progs
 efibootmgr
 util-linux
 systemd
+# preflight + partitioning: nft (firewall check), ssh-keygen (pubkey check),
+# partprobe; rsync mirrors the failover ESP with checksums
+nftables
+openssh
+parted
+rsync
 # LUKS enrollment + initramfs work performed inside the target chroot
 tpm2-tools
 mkinitcpio

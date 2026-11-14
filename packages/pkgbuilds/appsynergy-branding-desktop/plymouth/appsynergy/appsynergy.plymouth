@@ -1,26 +1,28 @@
 [Plymouth Theme]
 Name=appsynergy
-Description=AppSynergy boot splash — wordmark pulse (no hub-spoke mark)
+Description=appsynergy boot splash: the logo, untouched, over a gliding hairline
 ModuleName=two-step
 
 [two-step]
-Font=DejaVu Sans 12
-TitleFont=DejaVu Sans 28
-MonospaceFont=DejaVu Sans Mono 12
+Font=DejaVu Sans 11
+TitleFont=DejaVu Sans 24
+MonospaceFont=DejaVu Sans Mono 11
 ImageDir=/usr/share/plymouth/themes/appsynergy
-DialogHorizontalAlignment=.5
-DialogVerticalAlignment=.45
-TitleHorizontalAlignment=.5
-TitleVerticalAlignment=.38
-HorizontalAlignment=.5
-VerticalAlignment=.55
+# Logo (watermark) and line (throbber/animation) share one alignment and one
+# centre, which is what holds the line a fixed distance under the logo.
 WatermarkHorizontalAlignment=.5
-WatermarkVerticalAlignment=.92
+WatermarkVerticalAlignment=.44
+HorizontalAlignment=.5
+VerticalAlignment=.44
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.64
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.26
 Transition=none
 TransitionDuration=0.0
-BackgroundStartColor=0x0b0e11
-BackgroundEndColor=0x0b0e11
-ProgressBarBackgroundColor=0x2a333c
+BackgroundStartColor=0x10161c
+BackgroundEndColor=0x080b0e
+ProgressBarBackgroundColor=0x1c252d
 ProgressBarForegroundColor=0x4a9bb8
 DialogClearsFirmwareBackground=true
 MessageBelowAnimation=true
@@ -41,12 +43,12 @@ UseFirmwareBackground=false
 SuppressMessages=true
 ProgressBarShowPercentComplete=true
 UseProgressBar=true
-Title=Installing Updates...
+Title=Installing updates
 SubTitle=Do not turn off your computer
 
 [system-upgrade]
 SuppressMessages=true
 ProgressBarShowPercentComplete=true
 UseProgressBar=true
-Title=Upgrading System...
+Title=Upgrading system
 SubTitle=Do not turn off your computer

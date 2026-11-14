@@ -31,6 +31,10 @@ bluez-obex
 bluez-hid2hci
 openssh
 nftables
+# swap on compressed RAM; config written by appsynergy-install (desktop-tuning)
+zram-generator
+# boot splash + graphical LUKS prompt; theme ships in appsynergy-branding-desktop
+plymouth
 
 # --- console ---
 sudo
@@ -115,7 +119,9 @@ ttf-meslo-nerd
 # --- intentionally NOT here ---
 # ufw (nftables only)
 # docker k3s containerd nerdctl
-# firefox brave thorium
+# firefox
+# brave-bin thorium-browser-bin — not in core/extra; appsynergy-install adds them from
+#   [appsynergy] (phase `browsers`), falling back to the copies on the ISO.
 # bazelisk jdk qemu go nodejs npm pnpm code rustup musl — see packages-target-desktop-dev.txt
 
 # --- AppSynergy identity (NOT pacstrap'd) ---

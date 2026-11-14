@@ -149,6 +149,25 @@ pub fn plan_layout(
         bail!("both disks are the same path: {}", disks[0].display());
     }
 
+    if single_cryptname.is_empty()
+        || single_cryptname.len() > 64
+        || !single_cryptname.starts_with(|c: char| c.is_ascii_alphanumeric())
+        || !single_cryptname
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        bail!("invalid LUKS mapping name");
+    }
+    let digits = efi_size
+        .strip_suffix('G')
+        .or_else(|| efi_size.strip_suffix('M'));
+    if !digits.is_some_and(|d| {
+        !d.is_empty()
+            && d.chars().all(|c| c.is_ascii_digit())
+            && d.parse::<u64>().is_ok_and(|n| n > 0)
+    }) {
+        bail!("EFI size must be a positive integer followed by M or G");
+    }
     let raid1 = disks.len() == 2;
 
     let mut members = Vec::new();
@@ -224,6 +243,24 @@ pub fn render_cmdline_luks(
 /// it has to actually be written, hence this constant and its test.
 pub const APPARMOR_LSM_CMDLINE: &str = "lsm=landlock,lockdown,yama,integrity,apparmor,bpf";
 
+/// One kernel, two jobs. `appsynergy-linux` is upstream's *server* build: lazy
+/// preemption, 300 Hz, THP always. `CONFIG_PREEMPT_DYNAMIC` lets the bootloader
+/// pick the preemption model, so the workstation asks for full preemption
+/// (latency) and the server keeps the built default (throughput).
+///
+/// Do not write `preempt=voluntary` or `preempt=none`: x86 has lazy preemption,
+/// and on such architectures the kernel accepts only `full` and `lazy`. Anything
+/// else logs "Dynamic Preempt: unsupported mode" and is ignored — the server
+/// cmdline carried `preempt=voluntary` as exactly that no-op.
+/// `quiet splash` hands the boot console to Plymouth (the `appsynergy` theme, LUKS
+/// prompt included); the server cmdline deliberately has neither.
+pub const DESKTOP_CMDLINE: &str = "quiet splash preempt=full nowatchdog";
+
+/// THP `always` (the built default) bloats RSS and adds compaction stalls under
+/// the databases and runtimes K3s hosts; `madvise` leaves it to workloads that
+/// ask. The hardware watchdog stays armed on servers (no `nowatchdog`).
+pub const SERVER_CMDLINE: &str = "transparent_hugepage=madvise";
+
 /// os-release must only be written to usr/lib; etc is a symlink.
 /// Returns (lib_path_rel, etc_symlink_target) for documentation/tests.
 pub fn os_release_write_plan() -> (&'static str, &'static str) {
@@ -282,6 +319,8 @@ pub fn should_skip_pacstrap_pkg(name: &str) -> bool {
             | "appsynergy-wallpapers"
             | "appsynergy-mirrorlist"
             | "appsynergy-ca-certificates"
+            | "brave-bin"
+            | "thorium-browser-bin"
             | "appsynergy-linux"
             | "appsynergy-linux-headers"
             | "linux-appsynergy"
@@ -310,6 +349,10 @@ pub fn strip_password_newline(mut bytes: Vec<u8>) -> Result<Vec<u8>> {
     }
     if bytes.is_empty() {
         bail!("password empty after stripping newline");
+    }
+    if std::str::from_utf8(&bytes).is_err() || bytes.iter().any(|b| matches!(b, 0 | b'\n' | b'\r'))
+    {
+        bail!("password must be UTF-8 text on one line, without NUL bytes");
     }
     Ok(bytes)
 }
@@ -354,6 +397,23 @@ pub fn subvolume_names(server: bool) -> &'static [&'static str] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_password_records_and_unsafe_layout_fields() {
+        for password in [
+            b"one\nroot:other".as_slice(),
+            b"bad\0password",
+            &[0xff],
+            b"one\rtwo",
+        ] {
+            assert!(strip_password_newline(password.to_vec()).is_err());
+        }
+        let disks = vec![PathBuf::from("/dev/sda")];
+        assert!(plan_layout(&disks, "2G", "cryptroot", "test").is_ok());
+        assert!(plan_layout(&disks, "0G", "cryptroot", "test").is_err());
+        assert!(plan_layout(&disks, "2G", "../bad", "test").is_err());
+        assert!(plan_layout(&disks, "2G\nother", "cryptroot", "test").is_err());
+    }
 
     #[test]
     fn nvme_partition_paths() {
@@ -428,12 +488,28 @@ mod tests {
                 ("crypt1".into(), "u1".into()),
             ],
             "UUID=btrfs-root",
-            "preempt=voluntary ip=dhcp",
+            &format!("{SERVER_CMDLINE} ip=dhcp"),
         );
         assert!(c.contains("rd.luks.name=u0=crypt0"));
         assert!(c.contains("rd.luks.name=u1=crypt1"));
         assert!(c.contains("root=UUID=btrfs-root rootflags=subvol=@"));
-        assert!(c.contains("preempt=voluntary"));
+        assert!(c.contains("transparent_hugepage=madvise"));
+    }
+
+    #[test]
+    fn variant_cmdlines_use_only_preempt_modes_this_kernel_accepts() {
+        // x86 has ARCH_HAS_PREEMPT_LAZY: `none` and `voluntary` are rejected at boot.
+        for cmdline in [DESKTOP_CMDLINE, SERVER_CMDLINE] {
+            for arg in cmdline.split_whitespace() {
+                if let Some(mode) = arg.strip_prefix("preempt=") {
+                    assert!(["full", "lazy"].contains(&mode), "unsupported {arg}");
+                }
+            }
+        }
+        assert!(DESKTOP_CMDLINE.contains("preempt=full"));
+        // Servers keep the built default and the watchdog.
+        assert!(!SERVER_CMDLINE.contains("preempt="));
+        assert!(!SERVER_CMDLINE.contains("nowatchdog"));
     }
 
     #[test]

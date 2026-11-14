@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "AppSynergy"
+            }
+        ],
+        "Category": "",
+        "Description": "Breeze Dark with the AppSynergy wallpaper",
+        "Id": "io.appsynergy.desktop",
+        "License": "MIT",
+        "Name": "AppSynergy",
+        "Website": "https://github.com/Appsynergy-io/appsynergy-linux"
+    },
+    "X-Plasma-APIVersion": "2"
+}

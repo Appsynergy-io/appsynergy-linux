@@ -1,0 +1,56 @@
+# Maintainer: AppSynergy
+# Brave, upstream's release-channel binary, repackaged for [appsynergy] so a
+# workstation gets its browser signed, from the same repo as its kernel, and
+# updated by `pacman -Syu`. Layout and names follow the AUR `brave-bin` package
+# (brave <aur-release@brave.com> et al.) so the two are drop-in replacements.
+#
+# No epoch, unlike AUR's `1:`: the published repo is a GitHub Release, and
+# GitHub rewrites `:` in asset names, so an epoch'd file 404s for every client.
+#
+# Bump: set pkgver, take the sum from upstream's own
+#   .../releases/download/v<ver>/brave-browser-<ver>-linux-amd64.zip.sha256
+# never from the downloaded file.
+pkgname=brave-bin
+pkgver=1.99.57
+pkgrel=1
+pkgdesc='Web browser that blocks ads and trackers by default (binary release)'
+arch=('x86_64')
+url='https://brave.com'
+license=('MPL-2.0' 'BSD-3-Clause')
+depends=('alsa-lib' 'gtk3' 'libxss' 'nss' 'ttf-font')
+optdepends=('qt6-base: Qt6 UI support'
+            'cups: printer support'
+            'libnotify: native notifications')
+provides=("brave=$pkgver" 'brave-browser')
+conflicts=('brave')
+options=('!strip' '!debug')
+source=('brave-bin.sh'
+        'brave-browser.desktop'
+        "brave-browser-$pkgver-linux-amd64.zip::https://github.com/brave/brave-browser/releases/download/v$pkgver/brave-browser-$pkgver-linux-amd64.zip")
+noextract=("brave-browser-$pkgver-linux-amd64.zip")
+sha256sums=('7870e55dff672b6c40cff8421004a189ce68e43969a1ea18129693a00739dfd5'
+            'c07276b69c7304981525ecb022f92daf7ae125a4fb05ac3442157b50826e257a'
+            '734bd9e1d24bc0a94c03b0a43845107dd8a29f572c652023cf7177f5fc3a5f38')
+
+prepare() {
+  rm -rf brave
+  mkdir brave
+  bsdtar -xf "brave-browser-$pkgver-linux-amd64.zip" -C brave
+  chmod +x brave/brave
+}
+
+package() {
+  install -dm755 "$pkgdir/opt"
+  cp -a brave "$pkgdir/opt/brave-bin"
+  # the setuid sandbox helper, as upstream ships it
+  chmod 4755 "$pkgdir/opt/brave-bin/chrome-sandbox"
+
+  install -Dm755 brave-bin.sh "$pkgdir/usr/bin/brave"
+  install -Dm644 brave-browser.desktop "$pkgdir/usr/share/applications/brave-browser.desktop"
+  install -Dm644 brave/LICENSE "$pkgdir/usr/share/licenses/brave-bin/LICENSE"
+  local size
+  for size in 16 24 32 48 64 128 256; do
+    install -Dm644 "$pkgdir/opt/brave-bin/product_logo_$size.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/brave-desktop.png"
+  done
+}

@@ -1,4 +1,4 @@
-# Packages pacstrap'd for AppSynergy **server** variant (OVH / tunnels).
+# Packages pacstrap'd for AppSynergy **server** variant (headless K3s).
 # Keep list + OS docs: kernel/docs/SERVER-OS.md (in the appsynergy-linux checkout)
 # No desktop environment, no browsers, no Wi-Fi stack, no GPU media.
 # Kernel: appsynergy-linux from local pkgs. One package, every metal.
@@ -6,7 +6,6 @@
 
 # --- base / boot / disk ---
 base
-base-devel
 linux-firmware
 intel-ucode
 cryptsetup
@@ -18,18 +17,14 @@ e2fsprogs
 efibootmgr
 mkinitcpio
 
-# --- network / tunnels / firewall ---
+# --- network / K3s / firewall ---
 openssh
-wireguard-tools
 nftables
 iproute2
 iputils
-# Datapath diagnosis. Without it, a "the tunnel handshakes and passes
-# nothing" fault is guessed at from nft counters instead of read off the wire.
+# Packet capture for diagnosing pod and host connectivity.
 tcpdump
 bind
-# bpftool + libbpf (XDP / eBPF future)
-bpf
 # systemd-networkd is in systemd; enable at install time
 
 # --- MAC. The kernel has CONFIG_SECURITY_APPARMOR=y but leaves apparmor OUT of
@@ -80,28 +75,6 @@ ripgrep
 # permits the download, so pulling pahole in here leaves the later `pacman -U`
 # with nothing to retrieve and no sandbox to set up.
 pahole
-
-# --- maintain + build Rust native binaries on the host ---
-git
-rustup
-clang
-llvm
-compiler-rt
-lld
-mold
-cmake
-ninja
-nasm
-perl
-pkgconf
-openssl
-gcc
-binutils
-glibc
-linux-api-headers
-musl
-kernel-headers-musl
-protobuf
 
 # --- containers ---
 # k3s only (staged binary /opt/appsynergy/k3s; installer copies + enables).

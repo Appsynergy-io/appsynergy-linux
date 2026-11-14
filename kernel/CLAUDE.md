@@ -12,7 +12,7 @@ packages/scripts/build-appsynergy-linux.sh    # the only kernel build; stages in
 
 | Path | Role |
 |------|------|
-| `upstream/PIN` | the entire contract — commit, flavor, options, expected uname, required modules |
+| `upstream/PIN` | the entire contract — commit, flavor, options, expected uname, required modules and config (`REQUIRE_MODULE` / `REQUIRE_CONFIG`) |
 | `upstream/cachyos-source-keys.asc` | the two keys upstream signs release tarballs with |
 | `upstream/config-<uname>` | the config that actually shipped, written by the build as evidence |
 
@@ -22,8 +22,10 @@ packages/scripts/build-appsynergy-linux.sh    # the only kernel build; stages in
 - **`_processor_opt` empty means native autodetection**, and upstream's default *is* empty. Built on this 12900K workstation that yields an Alder Lake kernel which does not boot the Skylake Xeon — it has happened. The pin sets `GENERIC_V3` explicitly and the build refuses to stage a package whose config has `CONFIG_X86_NATIVE_CPU=y` or lacks `CONFIG_X86_64_VERSION=3`.
 - **One `GENERIC_V3` kernel makes an unbootable pairing representable.** Per-`-march=` packages could not be installed on the wrong CPU; one package can. `detect::supports_x86_64_v3` gates on `/proc/cpuinfo` **features**, not model names — a VM reports the host's model while masking features — and the installer bails before touching a disk.
 - **AppArmor is built in but not enabled.** Upstream sets `CONFIG_LSM="landlock,lockdown,yama,integrity,bpf"` with `CONFIG_DEFAULT_SECURITY_DAC=y`. Profiles load, the unit starts, `aa-status` looks healthy, nothing is enforced. `disk::APPARMOR_LSM_CMDLINE` puts `apparmor` on the cmdline; the test also asserts none of upstream's five entries were dropped to make room.
+- **`preempt=` accepts only `full` and `lazy`.** x86 has lazy preemption, and on such architectures the kernel removed `none` and `voluntary`; an unsupported value logs "Dynamic Preempt: unsupported mode" and is ignored. The server cmdline carried `preempt=voluntary` as that silent no-op. `disk::DESKTOP_CMDLINE` / `SERVER_CMDLINE` hold the per-variant choices and a test rejects any other mode.
 - **Upstream leaves one source unchecksummed.** The ThinLTO branch appends `misc/dkms-clang.patch` from a raw `master` URL and never extends `b2sums`, so makepkg aborts on the length mismatch; their CI regenerates sums, which verifies nothing. `SRCSUM` in the pin holds our hash and the build appends it positionally.
 - **Never build in `$SRC_CLONE`.** It is a working copy with local modifications, and a pin asserting only the commit says nothing about what sits on top. The build extracts `git archive <commit>:<flavor>` into a scratch dir.
+- **`/tmp` is a quota'd tmpfs and clang writes scratch files there.** The build tree lives under `~/.cache/appsynergy-kernel-build`, and the script also points `TMPDIR` into it — without that the 7.3.4 build died at the final vmlinux link with "Disk quota exceeded". A build that fails for a reason outside the tree is kept; `RESUME_WORK=<kept tree>` reruns `make` there incrementally and still applies every assertion.
 - **The rename is not Kconfig.** `prepare()` writes `localversion.20-pkgname` from `pkgbase`. Two guarded substitutions in the build script, each required to match exactly once so upstream drift fails the build instead of renaming the kernel silently.
 - Renaming changes `/boot` filenames, so an existing host swapping to it needs new bootloader entries — a reboot-window action. Runbook: `README.md` in this directory, "Rolling onto a host".
 - The lab NUC has **no TPM** — every boot needs a hand LUKS unlock over initrd SSH, so a bad initramfs costs physical access, not a reboot. Verify `lsinitcpio` before rebooting, never after.

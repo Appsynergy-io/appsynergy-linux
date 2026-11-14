@@ -49,7 +49,7 @@ if ! git -C "$SRC_CLONE" cat-file -e "$COMMIT^{commit}" 2>/dev/null; then
     echo "pinned commit $COMMIT does not exist upstream" >&2; exit 1; }
 fi
 
-# Deliberately NOT mktemp's default. `/tmp` here is a 32G tmpfs with usrquota,
+# Deliberately NOT mktemp's default. `/tmp` here is a tmpfs with usrquota,
 # and a ThinLTO kernel tree does not fit: the first attempt died twelve minutes
 # in with "Disk quota exceeded" from clang's backend, which reads as a compiler
 # bug rather than a full disk. Build on real disk, and check the space up front
@@ -62,7 +62,27 @@ avail_gib=$(df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc '0-9')
   echo "REFUSE: need ${need_gib}G free for a ThinLTO kernel build, $BUILD_ROOT has ${avail_gib:-0}G" >&2
   echo "        set BUILD_ROOT=/path/with/space to build elsewhere" >&2
   exit 1; }
-WORK=$(mktemp -d "$BUILD_ROOT/build.XXXXXX")
+# RESUME_WORK=<kept tree> continues a build that died in build() for a reason
+# outside the tree (the quota above, a power cut): the tree is already extracted,
+# renamed and prepared from the pinned commit, so only `make` reruns, incrementally.
+# Every assertion below still runs against the result.
+if [[ -n ${RESUME_WORK:-} ]]; then
+  want_ver=${WANT_UNAME%%-*}
+  WORK=$(realpath -- "$RESUME_WORK")
+  [[ $WORK == "$(realpath -- "$BUILD_ROOT")"/build.* && -f $WORK/PKGBUILD && -d $WORK/src ]] || {
+    echo "REFUSE: RESUME_WORK=$RESUME_WORK is not a kept build tree under $BUILD_ROOT" >&2; exit 1; }
+  for line in "pkgbase=\"${PKGBASE}\"" "_major=${want_ver%.*}" "_minor=${want_ver##*.}"; do
+    grep -qFx -- "$line" "$WORK/PKGBUILD" || {
+      echo "REFUSE: $WORK was not prepared for $PKGBASE $want_ver (PKGBUILD lacks $line)" >&2; exit 1; }
+  done
+else
+  WORK=$(mktemp -d "$BUILD_ROOT/build.XXXXXX")
+fi
+# The compiler's own scratch files go to $TMPDIR, not the build tree: moving the
+# tree off /tmp was not enough, and the 7.3.4 build died at the vmlinux link with
+# "unable to open output file '/tmp/-88b9bd.s': Disk quota exceeded".
+export TMPDIR="$WORK/tmp"
+mkdir -p "$TMPDIR"
 # Keep the tree on any non-zero exit. A wrong assertion is discovered at the very
 # end of a 45-minute ThinLTO build, and deleting the evidence means paying for
 # that build again just to look at the artifact — which is exactly what happened
@@ -78,6 +98,7 @@ cleanup() {
 trap cleanup EXIT
 echo "==> build root: $WORK (${avail_gib}G free)"
 
+if [[ -z ${RESUME_WORK:-} ]]; then
 echo "==> Extracting $FLAVOR at $COMMIT (clean tree: $WORK)"
 git -C "$SRC_CLONE" archive "$COMMIT:$FLAVOR" | tar -x -C "$WORK"
 [[ -f $WORK/PKGBUILD && -f $WORK/config ]] || {
@@ -115,6 +136,9 @@ while read -r name sum; do
   echo "b2sums+=('$sum')" >> "$WORK/PKGBUILD"
   echo "==> pinned unchecksummed upstream source: $name"
 done < <(sed -n 's/^SRCSUM //p' "$PIN")
+else
+  echo "==> Resuming in $WORK (already extracted, renamed and prepared)"
+fi
 
 # --- build options, all explicit ----------------------------------------------
 while read -r k v; do
@@ -143,7 +167,8 @@ done < <(sed -n 's/^SRCKEY=//p' "$PIN")
 
 echo "==> Building $PKGBASE (ThinLTO; this is long)"
 cd "$WORK"
-makepkg -f --noconfirm --nodeps
+# -e on resume: keep src/ as prepare() left it and let make pick up where it stopped.
+makepkg -f --noconfirm --nodeps ${RESUME_WORK:+-e}
 
 # --- assert before staging ----------------------------------------------------
 PKG=""
@@ -189,6 +214,12 @@ grep -q '^CONFIG_X86_NATIVE_CPU=y' "$cfg" && {
 grep -q '^CONFIG_X86_64_VERSION=3' "$cfg" || {
   echo "REFUSE: built config is not x86-64-v3 (CONFIG_X86_64_VERSION=3 absent)" >&2; exit 1; }
 echo "    ISA OK: x86-64-v3, no native-CPU pinning"
+
+while IFS= read -r setting; do
+  grep -qxF -- "$setting" "$cfg" || {
+    echo "REFUSE: built config lacks $setting" >&2; exit 1; }
+  echo "    config OK: $setting"
+done < <(sed -n 's/^REQUIRE_CONFIG //p' "$PIN")
 
 listing=$(bsdtar -tf "$PKG")
 while read -r frag; do

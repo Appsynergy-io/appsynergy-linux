@@ -40,7 +40,7 @@ missing=0
 # Here-string, not `printf | grep -q`: grep -q exits at the first match, printf
 # then takes SIGPIPE, and `set -o pipefail` reports the whole pipeline as failed —
 # turning a successful match into a false "MISSING".
-for b in pacstrap arch-chroot genfstab sgdisk cryptsetup mkfs.fat mkfs.btrfs bootctl blkid efibootmgr mkinitcpio; do
+for b in pacstrap arch-chroot genfstab sgdisk cryptsetup mkfs.fat mkfs.btrfs bootctl blkid efibootmgr mkinitcpio lsblk findmnt udevadm ssh-keygen wipefs partprobe mountpoint sha256sum unshare nft rsync; do
   if grep -qE "(usr/s?bin|bin)/${b}$" <<<"$listing"; then
     echo "    ok   $b"
   else

@@ -33,6 +33,6 @@ echo "==> payload tarballs (sha256  path)"
 mktar appsynergy-branding branding-payload.tar \
   os-release motd SHELL-POLICY.txt ascii bin fish profile.d skel
 mktar appsynergy-branding-desktop branding-desktop-payload.tar \
-  icons plymouth applications
+  icons plymouth applications lookandfeel xdg sddm
 mktar appsynergy-wallpapers wallpapers-payload.tar \
   metadata-desktop.json metadata-lock.json images

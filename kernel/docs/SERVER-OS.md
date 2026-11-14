@@ -4,7 +4,7 @@
 appsynergy-install --variant server   # APPSYNERGY_VARIANT=server
 ```
 
-Headless OVH / tunnel host. Same **LUKS2 + btrfs** layout as desktop and the same
+Headless single-node K3s host. Same **LUKS2 + btrfs** layout as desktop and the same
 kernel package, `appsynergy-linux` — the server/desktop difference is packages and
 services, never the kernel. **Keep list only**, no appliance applications.
 
@@ -22,11 +22,12 @@ services, never the kernel. **Keep list only**, no appliance applications.
 
 | Keep | On target |
 |------|-----------|
-| Fail-closed **nftables** | `/etc/nftables.conf` (SSH :22, lo, established, DHCP, ICMP/ND; `forward` drops all but DNATed uplink→`v-wg*` and `v-wg*`↔`v-wg*` — customer egress is NATed inside each WG container) |
+| Fail-closed **nftables** | `/etc/nftables.conf` (SSH :22, lo, established, DHCP, ICMP/ND; pods reach the API and kubelet only; `forward` drops all but pod egress and K3s-published DNAT; table `inet appsynergy_host`, K3s tables untouched) |
 | **AppArmor** (MAC) | kernel LSM + `apparmor` package; `systemctl enable apparmor`; stock profiles |
 | **Key-only SSH** | `sshd_config.d/10-appsynergy.conf` if `--ssh-pubkey` |
 | **TPM → SSH unlock → console** | crypttab TPM; initrd dropbear; passphrase always |
-| **Sysctl** FQ/BBR/forward/harden | `sysctl.d/99-appsynergy-server.conf` |
+| **Cmdline** | lazy preemption (built default), `transparent_hugepage=madvise`, watchdog armed |
+| **Sysctl** FQ/BBR/forward/harden/kubelet defaults/inotify | `sysctl.d/99-appsynergy-server.conf` |
 | **journald** cap + rate limit | `journald.conf.d/10-appsynergy.conf` |
 | **Watchdog** | `system.conf.d/10-watchdog.conf` |
 | **nf_conntrack** before sysctl | modules-load + sysctl unit drop-in |
@@ -37,7 +38,7 @@ WireGuard (y) · nftables+conntrack+NAT+flowtable · policy routing · TUN/veth/
 
 ### Userspace
 
-systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · wireguard-tools · nftables · **apparmor** · **k3s** (staged binary + config; embeds its runtime) · iproute2 · **tcpdump** · bpf · cryptsetup · tpm2-* · btrfs-progs · appsynergy-linux · branding · **bash** login · rustup+clang toolchain · enable: sshd, nftables, networkd, resolved, apparmor, **k3s**, fstrim
+systemd + **networkd/resolved** · openssh · dropbear **initrd only** (mask multi-user) · nftables · **apparmor** · **k3s** (staged binary + config; embeds its runtime) · iproute2 · **tcpdump** · cryptsetup · tpm2-* · btrfs-progs · appsynergy-linux · branding · **bash** login · enable: sshd, nftables, networkd, resolved, apparmor, **k3s**, fstrim
 
 ### NOT keep
 

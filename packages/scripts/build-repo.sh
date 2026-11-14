@@ -74,6 +74,10 @@ build_pkg "$ROOT/pkgbuilds/appsynergy-keyring"
 build_pkg "$ROOT/pkgbuilds/appsynergy-branding"
 build_pkg "$ROOT/pkgbuilds/appsynergy-wallpapers"
 build_pkg "$ROOT/pkgbuilds/appsynergy-branding-desktop"
+# Workstation browsers: upstream binaries, pinned by checksum. Hundreds of MB to
+# fetch and compress, which is why a published version is pulled, never rebuilt.
+build_pkg "$ROOT/pkgbuilds/brave-bin"
+build_pkg "$ROOT/pkgbuilds/thorium-browser-bin"
 
 # The kernel stages itself. build-appsynergy-linux.sh copies straight into
 # $REPO after asserting the built artifact against kernel/upstream/PIN, so there
