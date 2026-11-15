@@ -14,7 +14,8 @@ mkdir -p "$OUT_DIR"/{pkgs,etc,docs,bootstrap,k3s}
 # glob does not also match -headers-.
 shopt -s nullglob
 srcs=()
-for d in "$REPO" "$ROOT/iso/airootfs/opt/appsynergy/pkgs"; do
+# Published staging wins over profile copies for identical package versions.
+for d in "$ROOT/iso/airootfs/opt/appsynergy/pkgs" "$REPO"; do
   srcs+=( "$d"/appsynergy-linux-[0-9]*.pkg.tar.zst )
   srcs+=( "$d"/appsynergy-linux-headers-[0-9]*.pkg.tar.zst )
 done
@@ -35,7 +36,7 @@ declare -A PKG_GLOB=(
   [appsynergy-ca-certificates]='appsynergy-ca-certificates-[0-9]*.pkg.tar.zst'
   [appsynergy-keyring]='appsynergy-keyring-[0-9]*.pkg.tar.zst'
 )
-for src in "$REPO" "$ROOT/iso/airootfs/opt/appsynergy/pkgs"; do
+for src in "$ROOT/iso/airootfs/opt/appsynergy/pkgs" "$REPO"; do
   for base in "${!PKG_GLOB[@]}"; do
     if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
       cp -a "$src"/${PKG_GLOB[$base]} "$OUT_DIR/pkgs/" 2>/dev/null || true

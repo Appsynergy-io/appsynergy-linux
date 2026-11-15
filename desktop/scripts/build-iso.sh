@@ -84,13 +84,15 @@ declare -A PKG_GLOB=(
   [brave-bin]='brave-bin-[0-9]*.pkg.tar.zst'
   [thorium-browser-bin]='thorium-browser-bin-[0-9]*.pkg.tar.zst'
 )
-for src in "$PKG_REPO" \
-           "$MONO/packages/pkgbuilds/appsynergy-branding" \
+# Copy fallback builds first; published staging wins for identical versions.
+# makepkg output differs between builds even when package contents are unchanged.
+for src in "$MONO/packages/pkgbuilds/appsynergy-branding" \
            "$MONO/packages/pkgbuilds/appsynergy-branding-desktop" \
            "$MONO/packages/pkgbuilds/appsynergy-wallpapers" \
            "$MONO/packages/pkgbuilds/appsynergy-mirrorlist" \
            "$MONO/packages/pkgbuilds/appsynergy-ca-certificates" \
-           "$MONO/packages/pkgbuilds/appsynergy-keyring"; do
+           "$MONO/packages/pkgbuilds/appsynergy-keyring" \
+           "$PKG_REPO"; do
   for base in "${!PKG_GLOB[@]}"; do
     if compgen -G "$src/${PKG_GLOB[$base]}" > /dev/null; then
       cp -a "$src"/${PKG_GLOB[$base]} "$DST_PKG/" 2>/dev/null || true
