@@ -11,12 +11,12 @@ UPSTREAM_REPO=https://github.com/CachyOS/linux-cachyos.git
 UPSTREAM_COMMIT=8c1b37292a40209e9edd6df5bc08aec71236550f
 UPSTREAM_FLAVOR=linux-cachyos-server
 PKGVER=7.3.4
-PKGREL=1
+PKGREL=2
 
 # What the build must produce. build-appsynergy-linux.sh refuses to stage
 # anything that does not match, and check.sh asserts these strings appear here.
 PKGBASE=appsynergy-linux
-KERNEL_UNAME=7.3.4-1-appsynergy-linux
+KERNEL_UNAME=7.3.4-2-appsynergy-linux
 
 # Build options, set explicitly by the build script — never inherited. These are
 # upstream's own values for the published x86_64_v3 ThinLTO server packages,
@@ -79,6 +79,11 @@ REQUIRE_CONFIG CONFIG_CGROUPS=y
 REQUIRE_CONFIG CONFIG_NAMESPACES=y
 REQUIRE_CONFIG CONFIG_SECCOMP=y
 REQUIRE_CONFIG CONFIG_SECCOMP_FILTER=y
+# Upstream enables Rust; Kconfig drops it without error when bindgen, rust-src or
+# an LLVM-matched rustc is missing, and since 7.3 binder exists only in Rust.
+# 7.3.4-1 shipped that way: no Rust, no binder, no DRM panic QR code.
+REQUIRE_CONFIG CONFIG_RUST=y
+REQUIRE_CONFIG CONFIG_ANDROID_BINDER_IPC_RUST=y
 REQUIRE_MODULE kernel/fs/overlayfs/overlay.ko.zst
 REQUIRE_MODULE kernel/drivers/net/veth.ko.zst
 REQUIRE_MODULE kernel/drivers/net/vxlan/vxlan.ko.zst
