@@ -21,7 +21,7 @@ Extracts the pinned upstream commit into a scratch tree, verifies the release ta
 | ISA | `GENERIC_V3` | pre-Haswell CPUs cannot boot it — the installer refuses them by CPU *feature*, not model name |
 | `CONFIG_LSM` | `landlock,lockdown,yama,integrity,bpf` | AppArmor is compiled in but inactive; the installer adds it on the cmdline |
 | HZ / preempt | 300 / `PREEMPT_LAZY` | both `PREEMPT_DYNAMIC`, so `preempt=full` on the cmdline changes it without a rebuild |
-| `CONFIG_RUST` | off under clang | no in-tree Rust drivers |
+| `CONFIG_RUST` | on (from 7.3.4-2) | upstream enables it; binder is Rust-only since 7.3. Needs `rust-bindgen`, `rust-src` and a rustc on clang's LLVM major — the build refuses otherwise |
 | sched-ext | `SCHED_CLASS_EXT=y` | scx schedulers work; install `scx-scheds` |
 
 ## Retired

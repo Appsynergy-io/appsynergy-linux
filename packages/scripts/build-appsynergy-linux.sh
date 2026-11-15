@@ -32,10 +32,29 @@ UPSTREAM_REPO=$(pin UPSTREAM_REPO)
 COMMIT=$(pin UPSTREAM_COMMIT)
 FLAVOR=$(pin UPSTREAM_FLAVOR)
 PKGBASE=$(pin PKGBASE)
+PKGREL=$(pin PKGREL)
 WANT_UNAME=$(pin KERNEL_UNAME)
-for v in UPSTREAM_REPO COMMIT FLAVOR PKGBASE WANT_UNAME; do
+for v in UPSTREAM_REPO COMMIT FLAVOR PKGBASE PKGREL WANT_UNAME; do
   [[ -n ${!v} ]] || { echo "pin lacks $v" >&2; exit 1; }
 done
+
+# --- toolchain preflight --------------------------------------------------------
+# makepkg runs --nodeps, so upstream's makedepends are never checked, and Kconfig
+# does not fail on a missing toolchain: it quietly drops the options that need it.
+# 7.3.4-1 shipped without CONFIG_RUST (and so without binder) because bindgen was
+# absent. Refuse in a second rather than discover it in the config after the build.
+command -v bindgen >/dev/null 2>&1 || {
+  echo "REFUSE: bindgen not found (pacman -S rust-bindgen); CONFIG_RUST would be dropped" >&2; exit 1; }
+rust_src="$(rustc --print sysroot 2>/dev/null)/lib/rustlib/src/rust/library"
+[[ -f $rust_src/core/src/lib.rs ]] || {
+  echo "REFUSE: rust-src missing at $rust_src (rustup component add rust-src)" >&2; exit 1; }
+# ThinLTO links Rust and C objects in one LLVM pass, so rustc's LLVM must be clang's.
+rustc_llvm=$(rustc -vV | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+clang_llvm=$(clang -dumpversion | cut -d. -f1)
+[[ -n $rustc_llvm && $rustc_llvm == "$clang_llvm" ]] || {
+  echo "REFUSE: rustc is built on LLVM ${rustc_llvm:-?}, clang is LLVM ${clang_llvm:-?}." >&2
+  echo "        Set RUSTUP_TOOLCHAIN to a rustc built on LLVM $clang_llvm." >&2; exit 1; }
+echo "==> toolchain: $(rustc --version), clang $clang_llvm, $(bindgen --version)"
 
 # --- upstream source, at the pinned commit, from a clean tree -----------------
 # Never build in $SRC_CLONE. It is a working copy with local modifications, and
@@ -124,6 +143,10 @@ subst "$WORK/PKGBUILD" 'pkgbase="linux-$_pkgsuffix"' \
 pkgbase=\"${PKGBASE}\""
 subst "$WORK/PKGBUILD" '    echo "${pkgbase#linux}" > localversion.20-pkgname' \
                        '    echo "-${_pkgsuffix}" > localversion.20-pkgname'
+# Our pkgrel, not upstream's: a published pkgver-pkgrel is immutable, so shipping
+# new bytes for the same upstream release needs PKGREL bumped in the pin. The
+# anchor is upstream's literal pkgrel=1; if they move it, this refuses.
+subst "$WORK/PKGBUILD" 'pkgrel=1' "pkgrel=${PKGREL}"
 
 # --- pin the sources upstream leaves unchecksummed -----------------------------
 # _is_lto_kernel appends misc/dkms-clang.patch to source= without extending
