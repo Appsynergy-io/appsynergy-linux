@@ -172,11 +172,15 @@ jobs:
       # skips any file whose size matches what the Release reports.
       - name: kernel asset key
         id: kernel
+        # Authenticated: anonymous API calls share the runner IP's rate limit
+        # and 403 intermittently (publish failed that way on #16).
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           base=$(sed -n '1p' packages/pacman/SERVER | tr -d '[:space:]')
           [[ "$base" =~ ^https://github.com/([^/]+)/([^/]+)/releases/download/([^/]+)$ ]]
-          key=$(curl -fsSL "https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/releases/tags/${BASH_REMATCH[3]}" \
+          key=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/releases/tags/${BASH_REMATCH[3]}" \
             | awk -F'"' '/"name":/ && $4 ~ /^appsynergy-linux.*\.pkg\.tar\.zst(\.sig)?$/ { n=$4 }
                          n && /"size":/ { gsub(/[^0-9]/, "", $3); print n, $3; n="" }' \
             | sha256sum | cut -c1-16)
